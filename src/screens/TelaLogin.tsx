@@ -16,7 +16,6 @@ export default function TelaLogin({ navigation }: any) {
   const pressOut = () => Animated.spring(btnScale, { toValue: 1, friction: 3, useNativeDriver: true }).start();
 
   const onEntrar = () => {
-    // Atenção: no seu projeto a tela inicial chama "Telainicial" (com i minúsculo, conforme sua árvore).
     navigation.replace('Telainicial');
   };
 
