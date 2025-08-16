@@ -1,10 +1,15 @@
 import { Text } from '@react-navigation/elements';
+import { StaticScreenProps } from '@react-navigation/native';
 import { StyleSheet, View } from 'react-native';
 
-export function Updates() {
+type PerfilProps = StaticScreenProps<{
+  user: string;
+}>;
+
+export function Perfil({ route }: PerfilProps) {
   return (
     <View style={styles.container}>
-      <Text>Updates Screen</Text>
+      <Text>Perfil de {route.params.user}</Text>
     </View>
   );
 }

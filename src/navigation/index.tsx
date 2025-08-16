@@ -8,16 +8,16 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Image } from 'react-native';
 import bell from '../assets/bell.png';
 import newspaper from '../assets/newspaper.png';
-import { Home } from './screens/Home';
-import { Profile } from './screens/Profile';
-import { Settings } from './screens/Settings';
-import { Updates } from './screens/Updates';
-import { NotFound } from './screens/NotFound';
+import { TelaInicial } from './screens/TelaInicial';
+import { Perfil } from './screens/Perfil';
+import { Configuracoes } from './screens/Configuracoes';
+import { Notificacoes } from './screens/Notificacoes';
+import { NaoEncontrado } from './screens/NaoEncontrado';
 
 const HomeTabs = createBottomTabNavigator({
   screens: {
-    Home: {
-      screen: Home,
+    TelaInicial: {
+      screen: TelaInicial,
       options: {
         title: 'Feed',
         tabBarIcon: ({ color, size }) => (
@@ -32,8 +32,8 @@ const HomeTabs = createBottomTabNavigator({
         ),
       },
     },
-    Updates: {
-      screen: Updates,
+    Notificacoes: {
+      screen: Notificacoes,
       options: {
         tabBarIcon: ({ color, size }) => (
           <Image
@@ -59,8 +59,8 @@ const RootStack = createNativeStackNavigator({
         headerShown: false,
       },
     },
-    Profile: {
-      screen: Profile,
+    Perfil: {
+      screen: Perfil,
       linking: {
         path: ':user(@[a-zA-Z0-9-_]+)',
         parse: {
@@ -71,8 +71,8 @@ const RootStack = createNativeStackNavigator({
         },
       },
     },
-    Settings: {
-      screen: Settings,
+    Configuracoes: {
+      screen: Configuracoes,
       options: ({ navigation }) => ({
         presentation: 'modal',
         headerRight: () => (
@@ -82,8 +82,8 @@ const RootStack = createNativeStackNavigator({
         ),
       }),
     },
-    NotFound: {
-      screen: NotFound,
+    NaoEncontrado: {
+      screen: NaoEncontrado,
       options: {
         title: '404',
       },
