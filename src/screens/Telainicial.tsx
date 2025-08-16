@@ -1,23 +1,47 @@
 import React, { useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
-  Animated, Dimensions, SafeAreaView
+  Animated, Dimensions, SafeAreaView, ImageBackground
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
-type Story = { id: string; name: string; avatar: string; };
+type Story = { id: string; name: string; cover: string; avatar: string; };
 type Post = { id: string; user: string; avatar: string; image: string; text: string; likes: number; comments: number; };
 
 const STORIES: Story[] = [
-  { id: '1', name: 'Você', avatar: 'https://i.pravatar.cc/150?img=1' },
-  { id: '2', name: 'Luna',  avatar: 'https://i.pravatar.cc/150?img=2' },
-  { id: '3', name: 'Kai',   avatar: 'https://i.pravatar.cc/150?img=3' },
-  { id: '4', name: 'Mina',  avatar: 'https://i.pravatar.cc/150?img=4' },
-  { id: '5', name: 'Dex',   avatar: 'https://i.pravatar.cc/150?img=5' },
-  { id: '6', name: 'Yumi',  avatar: 'https://i.pravatar.cc/150?img=6' },
+  {
+    id: '1',
+    name: 'Você',
+    cover: 'https://images.unsplash.com/photo-1520975922284-9d08b6d8f6a0?w=1200&q=80&auto=format&fit=crop',
+    avatar: 'https://i.pravatar.cc/150?img=1',
+  },
+  {
+    id: '2',
+    name: 'Lua',
+    cover: 'https://images.unsplash.com/photo-1520975594081-3a43b00abd98?w=1200&q=80&auto=format&fit=crop',
+    avatar: 'https://i.pravatar.cc/150?img=2',
+  },
+  {
+    id: '3',
+    name: 'Kai',
+    cover: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1200&q=80&auto=format&fit=crop',
+    avatar: 'https://i.pravatar.cc/150?img=3',
+  },
+  {
+    id: '4',
+    name: 'Mina',
+    cover: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1200&q=80&auto=format&fit=crop',
+    avatar: 'https://i.pravatar.cc/150?img=4',
+  },
+  {
+    id: '5',
+    name: 'Dex',
+    cover: 'https://images.unsplash.com/photo-1517816428104-797678c7cf0c?w=1200&q=80&auto=format&fit=crop',
+    avatar: 'https://i.pravatar.cc/150?img=5',
+  },
 ];
 
 const POSTS: Post[] = [
@@ -25,8 +49,8 @@ const POSTS: Post[] = [
     id: 'p1',
     user: 'Luna',
     avatar: 'https://i.pravatar.cc/150?img=2',
-    image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1080&auto=format&fit=crop',
-    text: 'Primeiro post do dia! #kachan',
+    image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1600&q=80&auto=format&fit=crop',
+    text: 'Explorando um novo mapa hoje! #kachan',
     likes: 128,
     comments: 14,
   },
@@ -34,45 +58,55 @@ const POSTS: Post[] = [
     id: 'p2',
     user: 'Kai',
     avatar: 'https://i.pravatar.cc/150?img=3',
-    image: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?q=80&w=1080&auto=format&fit=crop',
-    text: 'Gameplay hoje às 20h 🎮',
+    image: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1600&q=80&auto=format&fit=crop',
+    text: 'Live às 20h 🎮 cola lá!',
     likes: 245,
     comments: 30,
   },
 ];
 
+/** ===== Story no estilo Facebook: cover com radius 15 + avatar topo-direito + nome no rodapé ===== */
+function StoryCard({ item, onPress }: { item: Story; onPress: () => void }) {
+  return (
+    <TouchableOpacity activeOpacity={0.9} style={styles.storyItem} onPress={onPress}>
+      <ImageBackground
+        source={{ uri: item.cover }}
+        style={styles.storyBg}
+        imageStyle={styles.storyBgImage}
+        resizeMode="cover"
+      >
+        {/* Avatar circular no canto superior-direito */}
+        <View style={styles.storyAvatarWrap}>
+          <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
+        </View>
+
+        {/* Nome do usuário no rodapé */}
+        <Text style={styles.storyName} numberOfLines={1}>{item.name}</Text>
+      </ImageBackground>
+    </TouchableOpacity>
+  );
+}
+
 export default function Telainicial({ navigation }: any) {
   const fabScale = useRef(new Animated.Value(1)).current;
-
   const onFabPressIn = () => Animated.spring(fabScale, { toValue: 0.95, useNativeDriver: true }).start();
   const onFabPressOut = () => Animated.spring(fabScale, { toValue: 1, friction: 3, useNativeDriver: true }).start();
 
   const renderStory = ({ item }: { item: Story }) => (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      style={styles.storyItem}
-      onPress={() => navigation.navigate('StoryViewer', { user: item })}
-    >
-      <LinearGradient
-        colors={['#FF5F6D', '#6C63FF', '#2230C3']}
-        start={[0, 0]}
-        end={[1, 1]}
-        style={styles.storyRing}
-      >
-        <View style={styles.storyInner}>
-          <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
-        </View>
-      </LinearGradient>
-      <Text numberOfLines={1} style={styles.storyName}>{item.name}</Text>
-    </TouchableOpacity>
+    <StoryCard
+      item={item}
+      onPress={() => navigation.navigate('StoryViewer', { user: { name: item.name, avatar: item.avatar } })}
+    />
   );
 
   const renderPost = ({ item }: { item: Post }) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Image source={{ uri: item.avatar }} style={styles.cardAvatar} />
-        <Text style={styles.cardUser}>{item.user}</Text>
-        <View style={{ flex: 1 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardUser}>{item.user}</Text>
+          <Text style={styles.cardSub}>agora • público</Text>
+        </View>
         <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
       </View>
 
@@ -96,12 +130,14 @@ export default function Telainicial({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.root}>
+      {/* Fundo gradiente sutil */}
       <LinearGradient
         colors={['#0E0E12', '#11142a', '#0E0E12']}
         start={[0, 0]} end={[1, 1]}
         style={StyleSheet.absoluteFill}
       />
 
+      {/* Top bar */}
       <View style={styles.topBar}>
         <Text style={styles.logo}>Kachan!</Text>
         <View style={{ flex: 1 }} />
@@ -110,6 +146,7 @@ export default function Telainicial({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* Stories */}
       <View style={styles.storiesWrap}>
         <FlatList
           horizontal
@@ -117,10 +154,11 @@ export default function Telainicial({ navigation }: any) {
           keyExtractor={(s) => s.id}
           renderItem={renderStory}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 14 }}
+          contentContainerStyle={{ paddingHorizontal: 12 }}
         />
       </View>
 
+      {/* Feed */}
       <FlatList
         data={POSTS}
         keyExtractor={(p) => p.id}
@@ -129,7 +167,8 @@ export default function Telainicial({ navigation }: any) {
         contentContainerStyle={{ paddingBottom: 120 }}
       />
 
-      <Animated.View style={[styles.fabWrap, { transform: [{ scale: fabScale }] }] }>
+      {/* FAB */}
+      <Animated.View style={[styles.fabWrap, { transform: [{ scale: fabScale }] }]}> 
         <TouchableOpacity
           activeOpacity={0.9}
           onPressIn={onFabPressIn}
@@ -146,8 +185,7 @@ export default function Telainicial({ navigation }: any) {
   );
 }
 
-const AVATAR = 62;
-
+/** ===== estilos ===== */
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
@@ -157,27 +195,44 @@ const styles = StyleSheet.create({
   },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.3 },
 
+  /** Stories — estilo Facebook */
   storiesWrap: { paddingVertical: 10 },
+  storyItem: { width: 100, height: 130, marginHorizontal: 6 },
+  storyBg: { flex: 1, borderRadius: 15, overflow: 'hidden', justifyContent: 'flex-end' },
+  storyBgImage: { borderRadius: 15 },
 
-  storyItem: { width: AVATAR + 16, alignItems: 'center', marginHorizontal: 6 },
-  storyRing: {
-    width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2,
-    alignItems: 'center', justifyContent: 'center',
+  storyAvatarWrap: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: '#000',
+    overflow: 'hidden',
   },
-  storyInner: {
-    width: AVATAR - 6, height: AVATAR - 6, borderRadius: (AVATAR - 6) / 2,
-    backgroundColor: '#0E0E12', alignItems: 'center', justifyContent: 'center',
-  },
-  storyAvatar: { width: AVATAR - 10, height: AVATAR - 10, borderRadius: (AVATAR - 10) / 2 },
-  storyName: { color: '#C9CBE2', fontSize: 11, marginTop: 6, maxWidth: AVATAR + 16 },
+  storyAvatar: { width: '100%', height: '100%', borderRadius: 14 },
 
+  storyName: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+
+  /** Cards do feed */
   card: {
-    width, paddingBottom: 10, marginBottom: 16,
+    width, paddingBottom: 12, marginBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 10 },
-  cardAvatar: { width: 34, height: 34, borderRadius: 17, marginRight: 10 },
+  cardAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
   cardUser: { color: '#fff', fontWeight: '700' },
+  cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
   mediaWrap: { width, height: width * 1.1, backgroundColor: '#15182f' },
   media: { width: '100%', height: '100%' },
@@ -189,6 +244,7 @@ const styles = StyleSheet.create({
   meta: { color: '#BDC1DA', fontSize: 12, paddingHorizontal: 14, marginTop: 2 },
   caption: { color: '#E6E8F5', paddingHorizontal: 14, marginTop: 4 },
 
+  /** FAB */
   fabWrap: { position: 'absolute', right: 18, bottom: 28 },
   fab: { borderRadius: 26, overflow: 'hidden' },
   fabBg: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
