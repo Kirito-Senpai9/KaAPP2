@@ -4,11 +4,13 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import TelaLogin from './screens/TelaLogin';
-import { TelaInicial as Telainicial } from './navigation/screens/TelaInicial';
+import Telainicial from './screens/Telainicial';
+import StoryViewer from './screens/StoryViewer';
 
 export type RootStackParamList = {
   TelaLogin: undefined;
   Telainicial: undefined;
+  StoryViewer: any;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -22,6 +24,7 @@ export default function App() {
       >
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
         <Stack.Screen name="Telainicial" component={Telainicial} />
+        <Stack.Screen name="StoryViewer" component={StoryViewer} />
       </Stack.Navigator>
     </NavigationContainer>
   );
