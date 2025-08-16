@@ -1,30 +1,29 @@
 import 'react-native-gesture-handler';
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-
-import TelaLogin from './screens/TelaLogin';
-import Telainicial from './screens/Telainicial';
-import StoryViewer from './screens/StoryViewer';
+import { useColorScheme } from 'react-native';
+import Tabs from '@/navigation/Tabs';
+import TelaLogin from '@/screens/TelaLogin';
+import StoryViewer from '@/screens/StoryViewer';
 
 export type RootStackParamList = {
   TelaLogin: undefined;
-  Telainicial: undefined;
+  RootTabs: undefined;
   StoryViewer: any;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
+  const colorScheme = useColorScheme();
+  const theme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="TelaLogin"
-        screenOptions={{ headerShown: false, animation: 'fade' }}
-      >
+    <NavigationContainer theme={theme}>
+      <Stack.Navigator initialRouteName="TelaLogin" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
-        <Stack.Screen name="Telainicial" component={Telainicial} />
-        <Stack.Screen name="StoryViewer" component={StoryViewer} />
+        <Stack.Screen name="RootTabs" component={Tabs} />
+        <Stack.Screen name="StoryViewer" component={StoryViewer as any} />
       </Stack.Navigator>
     </NavigationContainer>
   );
