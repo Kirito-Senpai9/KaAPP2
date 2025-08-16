@@ -16,7 +16,7 @@ export default function TelaLogin({ navigation }: any) {
   const pressOut = () => Animated.spring(btnScale, { toValue: 1, friction: 3, useNativeDriver: true }).start();
 
   const onEntrar = () => {
-    navigation.replace('Telainicial');
+    navigation.replace('RootTabs');
   };
 
   return (
