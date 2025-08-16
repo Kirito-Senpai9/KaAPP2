@@ -29,13 +29,7 @@
     "react-native-gesture-handler": "~2.24.0",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-<<<<<<< HEAD
-    "react-native-web": "^0.20.0",
-    "expo-linear-gradient": "~14.1.5",
-    "@expo/vector-icons": "^14.1.0"
-=======
     "react-native-web": "^0.20.0"
->>>>>>> 89b3c07f49d370f18677f1090bab438bac25014d
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
