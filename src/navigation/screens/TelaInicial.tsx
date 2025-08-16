@@ -1,15 +1,15 @@
 import { Button, Text } from '@react-navigation/elements';
 import { StyleSheet, View } from 'react-native';
 
-export function Home() {
+export function TelaInicial() {
   return (
     <View style={styles.container}>
-      <Text>Home Screen</Text>
-      <Text>Open up 'src/App.tsx' to start working on your app!</Text>
-      <Button screen="Profile" params={{ user: 'jane' }}>
-        Go to Profile
+      <Text>Tela Inicial</Text>
+      <Text>Abra 'src/App.tsx' para começar a trabalhar no seu app!</Text>
+      <Button screen="Perfil" params={{ user: 'jane' }}>
+        Ir para Perfil
       </Button>
-      <Button screen="Settings">Go to Settings</Button>
+      <Button screen="Configuracoes">Ir para Configurações</Button>
     </View>
   );
 }
