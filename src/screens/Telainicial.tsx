@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { memo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
   Animated, Dimensions, SafeAreaView, ImageBackground, Easing
@@ -25,9 +25,14 @@ const POSTS: Post[] = [
 ];
 
 /* --- Stories (rola junto no header) --- */
-function StoryCard({ item }: { item: Story }) {
+const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
   return (
-    <TouchableOpacity activeOpacity={0.9} style={styles.storyItem}>
+    <TouchableOpacity
+      activeOpacity={0.9}
+      style={styles.storyItem}
+      accessibilityRole="button"
+      accessibilityLabel={`Story de ${item.name}`}
+    >
       <ImageBackground
         source={{ uri: item.cover }}
         style={styles.storyBg}
@@ -40,22 +45,19 @@ function StoryCard({ item }: { item: Story }) {
       </ImageBackground>
     </TouchableOpacity>
   );
-}
+});
 
 /* --- Card do Post (com animações) --- */
-function PostCard({ item }: { item: Post }) {
-  // estados do item
+const PostCard = memo(function PostCard({ item }: { item: Post }) {
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // animated values (um por card)
   const likeScale    = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
   const commentShake = useRef(new Animated.Value(0)).current;
   const shareX       = useRef(new Animated.Value(0)).current;
   const saveRotateY  = useRef(new Animated.Value(0)).current;
 
-  // handlers
   const handleLike = () => {
     setLiked(v => !v);
     Animated.sequence([
@@ -93,7 +95,6 @@ function PostCard({ item }: { item: Post }) {
     ]).start();
   };
 
-  // interpolações
   const shareTranslate = shareX.interpolate({ inputRange: [0, 1], outputRange: [0, 10] });
   const saveRotateDeg  = saveRotateY.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
   const commentOffset  = commentShake.interpolate({ inputRange: [-1, 1], outputRange: [-3, 3] });
@@ -109,6 +110,7 @@ function PostCard({ item }: { item: Post }) {
         <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
       </View>
 
+      {/* mídia: usa aspectRatio para evitar reflow no web */}
       <View style={styles.mediaWrap}>
         <Image source={{ uri: item.image }} style={styles.media} />
       </View>
@@ -117,35 +119,55 @@ function PostCard({ item }: { item: Post }) {
       <View style={styles.actions}>
         <View style={styles.actionsLeft}>
           <Animated.View style={{ transform: [{ scale: likeScale }] }}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.8}>
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={22}
-                color={liked ? '#FF5A8F' : '#E5E7F4'}
-              />
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleLike}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={liked ? 'Descurtir' : 'Curtir'}
+            >
+              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? '#FF5A8F' : '#E5E7F4'} />
             </TouchableOpacity>
           </Animated.View>
 
           <Animated.View style={{ transform: [{ scale: commentScale }, { translateX: commentOffset }] }}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleComment} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleComment}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Comentar"
+            >
               <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
           </Animated.View>
 
           <Animated.View style={{ transform: [{ translateX: shareTranslate }] }}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleShare}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Compartilhar"
+            >
               <Ionicons name="paper-plane-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
           </Animated.View>
         </View>
 
         <Animated.View style={{ transform: [{ rotateY: saveRotateDeg }] }}>
-          <TouchableOpacity style={styles.actionBtn} onPress={handleSave} activeOpacity={0.85}>
-            <Ionicons
-              name={saved ? 'bookmark' : 'bookmark-outline'}
-              size={22}
-              color={saved ? '#6C63FF' : '#E5E7F4'}
-            />
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={handleSave}
+            activeOpacity={0.85}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={saved ? 'Remover dos favoritos' : 'Salvar nos favoritos'}
+          >
+            <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={22} color={saved ? '#6C63FF' : '#E5E7F4'} />
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -154,13 +176,9 @@ function PostCard({ item }: { item: Post }) {
       <Text style={styles.caption}><Text style={styles.cardUser}>{item.user}</Text> {item.text}</Text>
     </View>
   );
-}
+});
 
-export default function Telainicial() {
-  const fabScale = useRef(new Animated.Value(1)).current;
-  const onFabPressIn  = () => Animated.spring(fabScale, { toValue: 0.95, useNativeDriver: true }).start();
-  const onFabPressOut = () => Animated.spring(fabScale, { toValue: 1,  friction: 3, useNativeDriver: true }).start();
-
+export default function Home() {
   const FeedHeader = () => (
     <View style={styles.storiesWrap}>
       <FlatList
@@ -182,7 +200,7 @@ export default function Telainicial() {
       <View style={styles.topBar}>
         <Text style={styles.logo}>Kachan!</Text>
         <View style={{ flex: 1 }} />
-        <TouchableOpacity style={{ padding: 6 }}>
+        <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificações" accessibilityRole="button">
           <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
         </TouchableOpacity>
       </View>
@@ -195,23 +213,8 @@ export default function Telainicial() {
         ListHeaderComponent={FeedHeader}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
-        removeClippedSubviews={false}   // evita “corte” de header em algumas plataformas
+        removeClippedSubviews={false}
       />
-
-      {/* FAB global */}
-      <Animated.View style={[styles.fabWrap, { transform: [{ scale: fabScale }] }]}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPressIn={onFabPressIn}
-          onPressOut={onFabPressOut}
-          onPress={() => {}}
-          style={styles.fab}
-        >
-          <LinearGradient colors={['#6C63FF', '#2230C3']} start={[0,0]} end={[1,1]} style={styles.fabBg}>
-            <Ionicons name="add" size={26} color="#fff" />
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -221,12 +224,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
   // topo fixo
-  topBar: {
-    height: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
+  topBar: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.3 },
 
   // stories
@@ -255,12 +253,13 @@ const styles = StyleSheet.create({
   cardUser: { color: '#fff', fontWeight: '700' },
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
-  mediaWrap: { width, height: width * 1.1, backgroundColor: '#15182f' },
-  media: { width: '100%', height: '100%' },
+  // mídia com aspectRatio (evita reflow)
+  mediaWrap: { width, backgroundColor: '#15182f' },
+  media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
 
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-between', // esquerda | direita
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 8, paddingTop: 8,
   },
@@ -269,9 +268,4 @@ const styles = StyleSheet.create({
 
   meta: { color: '#BDC1DA', fontSize: 12, paddingHorizontal: 14, marginTop: 2 },
   caption: { color: '#E6E8F5', paddingHorizontal: 14, marginTop: 4 },
-
-  // FAB
-  fabWrap: { position: 'absolute', right: 18, bottom: 28 },
-  fab: { borderRadius: 26, overflow: 'hidden' },
-  fabBg: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
 });
