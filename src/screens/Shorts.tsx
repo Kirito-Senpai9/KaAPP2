@@ -8,6 +8,9 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
+/** Altura estimada da sua bottom bar custom (KachanTabs).
+ *  Se mudar a barra, ajuste aqui para manter tudo acima dela. */
+const TAB_BAR_HEIGHT = 86;
 
 /* =========================================
    Tipos e dados mock
@@ -61,29 +64,20 @@ const FOLLOWING: ShortItem[] = [
 ];
 
 /* =========================================
-   Abas topo (Para você / Seguindo)
+   Abas topo (Para você / Seguindo) — sem chip, só texto
 ========================================= */
 function Tabs({
   mode, onChange,
 }: { mode: 'forYou' | 'following'; onChange: (m: 'forYou' | 'following') => void }) {
-  const x = useRef(new Animated.Value(mode === 'forYou' ? 0 : 1)).current;
-
-  useEffect(() => {
-    Animated.timing(x, { toValue: mode === 'forYou' ? 0 : 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: false }).start();
-  }, [mode]);
-
-  const left = x.interpolate({ inputRange: [0, 1], outputRange: ['5%', '55%'] });
-
   return (
     <View style={styles.tabsWrap}>
-      <View style={styles.tabs}>
-        <TouchableOpacity onPress={() => onChange('forYou')} activeOpacity={0.9} style={styles.tabBtn}>
-          <Text style={[styles.tabTxt, mode === 'forYou' && styles.tabTxtActive]}>Para você</Text>
+      <View style={styles.tabsOnlyText}>
+        <TouchableOpacity onPress={() => onChange('forYou')} activeOpacity={0.9} style={styles.tabTextBtn}>
+          <Text style={[styles.tabText, mode === 'forYou' && styles.tabTextActive]}>Para você</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onChange('following')} activeOpacity={0.9} style={styles.tabBtn}>
-          <Text style={[styles.tabTxt, mode === 'following' && styles.tabTxtActive]}>Seguindo</Text>
+        <TouchableOpacity onPress={() => onChange('following')} activeOpacity={0.9} style={styles.tabTextBtn}>
+          <Text style={[styles.tabText, mode === 'following' && styles.tabTextActive]}>Seguindo</Text>
         </TouchableOpacity>
-        <Animated.View style={[styles.tabIndicator, { left }]} />
       </View>
     </View>
   );
@@ -205,7 +199,7 @@ const ShortCard = memo(function ShortCard({
       {/* gradiente sutil para leitura */}
       <LinearGradient colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.6)']} style={StyleSheet.absoluteFill} />
 
-      {/* coluna de ações à direita */}
+      {/* coluna de ações à direita — levantada para não colidir com a bottom bar */}
       <View style={styles.rightRail}>
         {/* Perfil + seguir */}
         <View style={styles.profileBlock}>
@@ -244,7 +238,7 @@ const ShortCard = memo(function ShortCard({
         </Animated.View>
       </View>
 
-      {/* texto e áudio na base */}
+      {/* texto e áudio na base — agora acima da barra de navegação */}
       <View style={styles.bottomInfo}>
         <Text style={styles.userName}>@{item.user.name.toLowerCase()}</Text>
         <Text style={styles.caption}>{item.caption}</Text>
@@ -312,27 +306,24 @@ export default function Shorts() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
-  /* Tabs topo */
+  /* Tabs topo — texto apenas */
   tabsWrap: {
-    position: 'absolute', top: Platform.select({ ios: 12, android: 8 }), left: 0, right: 0, zIndex: 30,
+    position: 'absolute',
+    top: Platform.select({ ios: 12, android: 8 }),
+    left: 0, right: 0, zIndex: 30,
     alignItems: 'center',
   },
-  tabs: {
-    width: '70%',
-    height: 36,
-    backgroundColor: 'rgba(21,24,47,0.8)',
-    borderRadius: 18,
+  tabsOnlyText: {
     flexDirection: 'row',
+    gap: 18,
     alignItems: 'center',
-    position: 'relative',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    // sem plano de fundo, sem indicador
   },
-  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabTxt: { color: '#A6ADCE', fontWeight: '700', fontSize: 12, letterSpacing: 0.2 },
-  tabTxtActive: { color: '#FFFFFF' },
-  tabIndicator: {
-    position: 'absolute', top: 3, width: '40%', height: 30, borderRadius: 15,
-    backgroundColor: 'rgba(108,99,255,0.22)',
-  },
+  tabTextBtn: { paddingHorizontal: 6, paddingVertical: 6 },
+  tabText: { color: '#A6ADCE', fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
+  tabTextActive: { color: '#FFFFFF' },
 
   /* Página do vídeo */
   page: { width, height, justifyContent: 'center', alignItems: 'center' },
@@ -341,10 +332,13 @@ const styles = StyleSheet.create({
 
   centerHeart: { position: 'absolute', alignSelf: 'center', top: height * 0.4 },
 
-  /* Coluna da direita */
+  /* Coluna da direita — acima da bottom bar */
   rightRail: {
-    position: 'absolute', right: 12, bottom: height * 0.18,
-    alignItems: 'center', gap: 16,
+    position: 'absolute',
+    right: 12,
+    bottom: TAB_BAR_HEIGHT + 28,
+    alignItems: 'center',
+    gap: 16,
   },
   profileBlock: { alignItems: 'center' },
   avatar: { width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: '#6C63FF' },
@@ -360,12 +354,15 @@ const styles = StyleSheet.create({
   },
   count: { color: '#EDEFFF', fontWeight: '700', marginTop: 4 },
 
-  /* Base: usuário, caption, áudio */
-  bottomInfo: { position: 'absolute', left: 14, right: 90, bottom: 40 },
+  /* Base: usuário, caption, áudio — acima da bottom bar */
+  bottomInfo: {
+    position: 'absolute',
+    left: 14, right: 90,
+    bottom: TAB_BAR_HEIGHT + 12,
+  },
   userName: { color: '#fff', fontWeight: '800', fontSize: 14, marginBottom: 4 },
   caption: { color: '#E6E8F5' },
   audioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
   marqueeBox: { overflow: 'hidden', width: width * 0.6 },
   music: { color: '#DDE1FF' },
 });
-
