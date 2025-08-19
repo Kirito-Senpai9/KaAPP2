@@ -4,12 +4,12 @@ import {
   TouchableOpacity, Animated, Easing, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
-/** Altura estimada da sua bottom bar custom (KachanTabs).
- *  Se mudar a barra, ajuste aqui para manter tudo acima dela. */
+
+/** Altura estimada da sua bottom bar custom (KachanTabs). */
 const TAB_BAR_HEIGHT = 86;
 
 /* =========================================
@@ -64,7 +64,7 @@ const FOLLOWING: ShortItem[] = [
 ];
 
 /* =========================================
-   Abas topo (Para você / Seguindo) — sem chip, só texto
+   Abas topo (Para você / Seguindo) — só texto
 ========================================= */
 function Tabs({
   mode, onChange,
@@ -90,68 +90,92 @@ const ShortCard = memo(function ShortCard({
   item, playing, onDoubleLike,
 }: {
   item: ShortItem;
-  playing: boolean;
+  playing: boolean;            // controla qual página está visível
   onDoubleLike?: () => void;
 }) {
   const videoRef = useRef<Video | null>(null);
 
+  // estados
   const [liked, setLiked] = useState(false);
   const [follow, setFollow] = useState(!!item.user.following);
+  const [userPaused, setUserPaused] = useState(false); // pausa local por tap
+  const [progress, setProgress] = useState(0);         // 0..1 barra de progresso
 
-  // animações dos ícones
+  // animações de ícones (somente ícones – contadores ficam fora!)
   const likeScale = useRef(new Animated.Value(1)).current;
-  const likeColor = liked ? '#FF5A8F' : '#EDEFFF';
-
   const commentScale = useRef(new Animated.Value(1)).current;
   const shareX = useRef(new Animated.Value(0)).current;
+  const likeColor = liked ? '#FF5A8F' : '#EDEFFF';
 
-  // coração “flutuante” no centro ao dar like por duplo toque
+  // coração “burst” no meio (duplo toque)
   const burst = useRef(new Animated.Value(0)).current;
 
-  // faixa de áudio (marquee)
+  // marquee do áudio
   const marquee = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     marquee.setValue(0);
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.timing(marquee, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: true })
-    ).start();
+    );
+    loop.start();
+    return () => loop.stop();
   }, []);
 
-  // tocar/pausar
-  useEffect(() => {
-    if (!videoRef.current) return;
-    if (playing) videoRef.current.playAsync().catch(() => {});
-    else videoRef.current.pauseAsync().catch(() => {});
-  }, [playing]);
+  // status do player: atualiza progresso
+  const onStatusUpdate = (status: AVPlaybackStatus) => {
+    // @ts-ignore – checagem simples
+    if (!status?.isLoaded) return;
+    // @ts-ignore
+    const dur = status.durationMillis ?? 0;
+    // @ts-ignore
+    const pos = status.positionMillis ?? 0;
+    if (dur > 0) setProgress(Math.min(1, Math.max(0, pos / dur)));
+  };
 
-  // like por toque simples
-  const handleLike = () => {
-    setLiked(v => !v);
+  // tocar/pausar conforme página visível + pausa do usuário
+  useEffect(() => {
+    const run = async () => {
+      if (!videoRef.current) return;
+      try {
+        if (playing && !userPaused) await videoRef.current.playAsync();
+        else await videoRef.current.pauseAsync();
+      } catch {}
+    };
+    run();
+  }, [playing, userPaused]);
+
+  // helper: anima o coração (ícone)
+  const animateHeart = () => {
     Animated.sequence([
       Animated.spring(likeScale, { toValue: 1.25, useNativeDriver: true }),
       Animated.spring(likeScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
   };
 
-  // like por duplo toque no vídeo
+  // tap vs duplo toque
   const lastTap = useRef<number>(0);
   const onVideoPress = () => {
     const now = Date.now();
-    if (now - lastTap.current < 300) {
-      if (!liked) {
-        setLiked(true);
-        onDoubleLike?.();
-        Animated.sequence([
-          Animated.timing(burst, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-          Animated.timing(burst, { toValue: 0, duration: 240, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-        ]).start();
-        Animated.sequence([
-          Animated.spring(likeScale, { toValue: 1.25, useNativeDriver: true }),
-          Animated.spring(likeScale, { toValue: 1, friction: 4, useNativeDriver: true }),
-        ]).start();
-      }
+    if (now - lastTap.current < 280) {
+      // duplo toque = curtir
+      if (!liked) setLiked(true);
+      onDoubleLike?.();
+      animateHeart(); // anima o ícone
+      Animated.sequence([
+        Animated.timing(burst, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(burst, { toValue: 0, duration: 240, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ]).start();
+    } else {
+      // toque simples = pausar/retomar
+      setUserPaused(p => !p);
     }
     lastTap.current = now;
+  };
+
+  // clicar no coração (ícone) — animação + toggle
+  const onHeartPress = () => {
+    setLiked(v => !v);
+    animateHeart(); // anima SOMENTE o ícone
   };
 
   const onComment = () => {
@@ -159,7 +183,7 @@ const ShortCard = memo(function ShortCard({
       Animated.spring(commentScale, { toValue: 1.2, useNativeDriver: true }),
       Animated.spring(commentScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
-    // abrir bottom-sheet de comentários futuramente
+    // abrir bottom-sheet futuramente
   };
 
   const onShare = () => {
@@ -167,7 +191,7 @@ const ShortCard = memo(function ShortCard({
       Animated.timing(shareX, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(shareX, { toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
     ]).start();
-    // compartilhar (link) futuramente
+    // compartilhar futuramente
   };
 
   const heartStyle = {
@@ -177,9 +201,12 @@ const ShortCard = memo(function ShortCard({
 
   const marqueeTx = marquee.interpolate({ inputRange: [0, 1], outputRange: [0, -width * 0.6] });
 
+  // formatar contadores para ocupar menos largura
+  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+
   return (
     <View style={styles.page}>
-      {/* vídeo */}
+      {/* vídeo (tap pausa/retoma, duplo toque curte) */}
       <Pressable style={styles.videoTouch} onPress={onVideoPress}>
         <Video
           ref={(r) => (videoRef.current = r)}
@@ -188,6 +215,7 @@ const ShortCard = memo(function ShortCard({
           resizeMode={ResizeMode.COVER}
           shouldPlay={false}
           isLooping
+          onPlaybackStatusUpdate={onStatusUpdate}
         />
       </Pressable>
 
@@ -197,9 +225,17 @@ const ShortCard = memo(function ShortCard({
       </Animated.View>
 
       {/* gradiente sutil para leitura */}
-      <LinearGradient colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.6)']} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.6)']}
+        style={StyleSheet.absoluteFill}
+      />
 
-      {/* coluna de ações à direita — levantada para não colidir com a bottom bar */}
+      {/* barra de progresso discreta */}
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: Math.max(0, Math.min(1, progress)) * width }]} />
+      </View>
+
+      {/* coluna de ações à direita — acima da bottom bar */}
       <View style={styles.rightRail}>
         {/* Perfil + seguir */}
         <View style={styles.profileBlock}>
@@ -213,32 +249,38 @@ const ShortCard = memo(function ShortCard({
           </TouchableOpacity>
         </View>
 
-        {/* Curtir */}
-        <Animated.View style={{ transform: [{ scale: likeScale }] }}>
-          <TouchableOpacity style={styles.iconBtn} onPress={handleLike} activeOpacity={0.85}>
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={likeColor} />
-          </TouchableOpacity>
-          <Text style={styles.count}>{item.likes + (liked ? 1 : 0)}</Text>
-        </Animated.View>
+        {/* Curtir — Animated apenas no ÍCONE (contador fora) */}
+        <View style={{ alignItems: 'center' }}>
+          <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+            <TouchableOpacity style={styles.iconBtn} onPress={onHeartPress} activeOpacity={0.85}>
+              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={likeColor} />
+            </TouchableOpacity>
+          </Animated.View>
+          <Text style={styles.count}>{fmt(item.likes + (liked ? 1 : 0))}</Text>
+        </View>
 
-        {/* Comentar */}
-        <Animated.View style={{ transform: [{ scale: commentScale }] }}>
-          <TouchableOpacity style={styles.iconBtn} onPress={onComment} activeOpacity={0.85}>
-            <Ionicons name="chatbubble-ellipses-outline" size={26} color="#EDEFFF" />
-          </TouchableOpacity>
-          <Text style={styles.count}>{item.comments}</Text>
-        </Animated.View>
+        {/* Comentar — Animated apenas no ÍCONE */}
+        <View style={{ alignItems: 'center' }}>
+          <Animated.View style={{ transform: [{ scale: commentScale }] }}>
+            <TouchableOpacity style={styles.iconBtn} onPress={onComment} activeOpacity={0.85}>
+              <Ionicons name="chatbubble-ellipses-outline" size={26} color="#EDEFFF" />
+            </TouchableOpacity>
+          </Animated.View>
+          <Text style={styles.count}>{fmt(item.comments)}</Text>
+        </View>
 
-        {/* Compartilhar */}
-        <Animated.View style={{ transform: [{ translateX: shareX.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) }] }}>
-          <TouchableOpacity style={styles.iconBtn} onPress={onShare} activeOpacity={0.85}>
-            <Ionicons name="share-social-outline" size={26} color="#EDEFFF" />
-          </TouchableOpacity>
-          <Text style={styles.count}>{item.shares}</Text>
-        </Animated.View>
+        {/* Compartilhar — Animated apenas no ÍCONE */}
+        <View style={{ alignItems: 'center' }}>
+          <Animated.View style={{ transform: [{ translateX: shareX.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) }] }}>
+            <TouchableOpacity style={styles.iconBtn} onPress={onShare} activeOpacity={0.85}>
+              <Ionicons name="share-social-outline" size={26} color="#EDEFFF" />
+            </TouchableOpacity>
+          </Animated.View>
+          <Text style={styles.count}>{fmt(item.shares)}</Text>
+        </View>
       </View>
 
-      {/* texto e áudio na base — agora acima da barra de navegação */}
+      {/* base: usuário, caption, áudio — acima da bottom bar */}
       <View style={styles.bottomInfo}>
         <Text style={styles.userName}>@{item.user.name.toLowerCase()}</Text>
         <Text style={styles.caption}>{item.caption}</Text>
@@ -246,7 +288,10 @@ const ShortCard = memo(function ShortCard({
         <View style={styles.audioRow}>
           <Ionicons name="musical-notes-outline" size={16} color="#DDE1FF" />
           <View style={styles.marqueeBox}>
-            <Animated.Text style={[styles.music, { transform: [{ translateX: marqueeTx }] }]} numberOfLines={1}>
+            <Animated.Text
+              style={[styles.music, { transform: [{ translateX: marqueeTx }] }]}
+              numberOfLines={1}
+            >
               ♫ {item.music}  •  {item.music}  •  {item.music}
             </Animated.Text>
           </View>
@@ -283,7 +328,6 @@ export default function Shorts() {
   return (
     <View style={styles.root}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
-
       <Tabs mode={mode} onChange={setMode} />
 
       <FlatList
@@ -319,7 +363,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    // sem plano de fundo, sem indicador
   },
   tabTextBtn: { paddingHorizontal: 6, paddingVertical: 6 },
   tabText: { color: '#A6ADCE', fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
@@ -331,6 +374,19 @@ const styles = StyleSheet.create({
   video: { width, height, backgroundColor: '#000' },
 
   centerHeart: { position: 'absolute', alignSelf: 'center', top: height * 0.4 },
+
+  /* barra de progresso (discreta, acima da bottom bar) */
+  progressTrack: {
+    position: 'absolute',
+    left: 0, right: 0,
+    bottom: TAB_BAR_HEIGHT + 6,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#DDE1FF',
+  },
 
   /* Coluna da direita — acima da bottom bar */
   rightRail: {
@@ -348,11 +404,13 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: '#0E0E12',
   },
   following: { backgroundColor: 'rgba(108,99,255,0.28)' },
+
   iconBtn: {
     width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center', justifyContent: 'center',
   },
-  count: { color: '#EDEFFF', fontWeight: '700', marginTop: 4 },
+  // largura fixa + texto centralizado para os contadores não “pularem”
+  count: { color: '#EDEFFF', fontWeight: '700', marginTop: 4, width: 48, textAlign: 'center' },
 
   /* Base: usuário, caption, áudio — acima da bottom bar */
   bottomInfo: {
