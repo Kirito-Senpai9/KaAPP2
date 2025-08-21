@@ -1,10 +1,11 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { HeaderButton, Text } from '@react-navigation/elements';
+import { useNavigation } from '@react-navigation/native';
+import { createStaticNavigation } from '@react-navigation/native';
 import {
-  createStaticNavigation,
-  StaticParamList,
-} from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+  createNativeStackNavigator,
+  type NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
 import { Image } from 'react-native';
 import bell from '../assets/bell.png';
 import newspaper from '../assets/newspaper.png';
@@ -13,6 +14,24 @@ import { Perfil } from './screens/Perfil';
 import { Configuracoes } from './screens/Configuracoes';
 import { Notificacoes } from './screens/Notificacoes';
 import { NaoEncontrado } from './screens/NaoEncontrado';
+import Criar from '../screens/Criar';
+import CriarStories from '../screens/CriarStories';
+import CriarPostagem from '../screens/CriarPostagem';
+import CriarShorts from '../screens/CriarShorts';
+import LiveSetup from '../screens/LiveSetup';
+
+export type RootStackParamList = {
+  HomeTabs: undefined;
+  Criar: undefined;
+  CriarStories: undefined;
+  CriarPostagem: undefined;
+  CriarShorts: undefined;
+  LiveSetup: undefined;
+  Perfil: { user: string };
+  Configuracoes: undefined;
+  Notificacoes: undefined;
+  NaoEncontrado: undefined;
+};
 
 const HomeTabs = createBottomTabNavigator({
   screens: {
@@ -82,6 +101,36 @@ const RootStack = createNativeStackNavigator({
         ),
       }),
     },
+    Criar: {
+      screen: Criar,
+      options: {
+        title: 'Criar',
+      },
+    },
+    CriarStories: {
+      screen: CriarStories,
+      options: {
+        title: 'Criar Stories',
+      },
+    },
+    CriarPostagem: {
+      screen: CriarPostagem,
+      options: {
+        title: 'Criar Postagem',
+      },
+    },
+    CriarShorts: {
+      screen: CriarShorts,
+      options: {
+        title: 'Criar Shorts',
+      },
+    },
+    LiveSetup: {
+      screen: LiveSetup,
+      options: {
+        title: 'Live Streamer',
+      },
+    },
     NaoEncontrado: {
       screen: NaoEncontrado,
       options: {
@@ -96,7 +145,9 @@ const RootStack = createNativeStackNavigator({
 
 export const Navigation = createStaticNavigation(RootStack);
 
-type RootStackParamList = StaticParamList<typeof RootStack>;
+export function useAppNavigation() {
+  return useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+}
 
 declare global {
   namespace ReactNavigation {
