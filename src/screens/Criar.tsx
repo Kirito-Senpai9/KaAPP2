@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useAppNavigation } from "../navigation";
 
 const { width } = Dimensions.get("window");
 
@@ -18,6 +19,7 @@ const { width } = Dimensions.get("window");
 const TAB_BAR_HEIGHT = 86;
 
 export default function CreateScreen() {
+  const navigation = useAppNavigation();
   const OptionCard = ({
     icon,
     title,
@@ -83,25 +85,25 @@ export default function CreateScreen() {
             icon="game-controller-outline"
             title="Live Streamer"
             subtitle="Transmita seus jogos ao vivo"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("LiveSetup")}
           />
           <OptionCard
             icon="camera-outline"
             title="Criar Stories"
             subtitle="Compartilhe momentos rápidos"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("CriarStories")}
           />
           <OptionCard
             icon="create-outline"
             title="Criar Postagem"
             subtitle="Compartilhe no feed"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("CriarPostagem")}
           />
           <OptionCard
             icon="film-outline"
             title="Criar Shorts"
             subtitle="Grave ou envie vídeos curtos"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("CriarShorts")}
             isLast
           />
         </View>
