@@ -209,7 +209,9 @@ const ShortCard = memo(function ShortCard({
       {/* vídeo (tap pausa/retoma, duplo toque curte) */}
       <Pressable style={styles.videoTouch} onPress={onVideoPress}>
         <Video
-          ref={(r) => (videoRef.current = r)}
+          ref={(r) => {
+            videoRef.current = r;
+          }}
           source={{ uri: item.videoUrl }}
           style={styles.video}
           resizeMode={ResizeMode.COVER}
