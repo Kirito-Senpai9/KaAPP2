@@ -1,10 +1,11 @@
 import React, { memo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
-  Animated, Dimensions, SafeAreaView, ImageBackground, Easing
+  Animated, Dimensions, ImageBackground, Easing
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -179,6 +180,8 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
 });
 
 export default function Home() {
+  const insets = useSafeAreaInsets();
+
   const FeedHeader = () => (
     <View style={styles.storiesWrap}>
       <FlatList
@@ -193,11 +196,11 @@ export default function Home() {
   );
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} start={[0,0]} end={[1,1]} style={StyleSheet.absoluteFill} />
 
       {/* Topo fixo: nome + sino */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Text style={styles.logo}>Kachan!</Text>
         <View style={{ flex: 1 }} />
         <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificações" accessibilityRole="button">
@@ -224,7 +227,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
   // topo fixo
-  topBar: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
+  topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.3 },
 
   // stories
