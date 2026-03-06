@@ -196,7 +196,7 @@ export default function Home() {
   );
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} start={[0,0]} end={[1,1]} style={StyleSheet.absoluteFill} />
 
       {/* Topo fixo: nome + sino */}
