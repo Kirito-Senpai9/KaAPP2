@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import type { RootStackScreenProps } from '@/navigation/types';
 
-export default function TelaLogin({ navigation }: any) {
+export default function TelaLogin({ navigation }: RootStackScreenProps<'TelaLogin'>) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [showPass, setShowPass] = useState(false);

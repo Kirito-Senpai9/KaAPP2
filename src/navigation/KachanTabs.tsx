@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
@@ -12,8 +12,16 @@ import Comunidade from '../screens/Comunidade';
 import Perfil from '../screens/Perfil';
 import Criar from '../screens/Criar';                // fluxo de criação
 
-type RouteName = 'Home' | 'Shorts' | 'Criar' | 'Comunidade' | 'Perfil';
-const Tab = createBottomTabNavigator();
+export type KachanTabParamList = {
+  Home: undefined;
+  Shorts: undefined;
+  Criar: undefined;
+  Comunidade: undefined;
+  Perfil: undefined;
+};
+
+type RouteName = keyof KachanTabParamList;
+const Tab = createBottomTabNavigator<KachanTabParamList>();
 
 const TABS: Array<{
   key: RouteName;
@@ -56,13 +64,12 @@ function IconAnimated({
   );
 }
 
-function KachanTabBar({ state, descriptors, navigation }: any) {
+function KachanTabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        {state.routes.map((route: any, index: number) => {
+        {state.routes.map((route, index: number) => {
           const isFocused = state.index === index;
-          const options = descriptors[route.key].options;
           const tab = TABS.find(t => t.key === route.name as RouteName)!;
 
           const onPress = () => {
@@ -110,8 +117,6 @@ export default function KachanTabs() {
     <Tab.Navigator
       screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}
       tabBar={(props) => <KachanTabBar {...props} />}
-      // @ts-ignore: sceneContainerStyle missing in types
-      sceneContainerStyle={{ backgroundColor: '#0E0E12' }}
     >
       <Tab.Screen name="Home" component={Telainicial} />
       <Tab.Screen name="Shorts" component={Shorts} />

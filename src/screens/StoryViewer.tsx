@@ -1,9 +1,12 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { RootStackScreenProps } from '@/navigation/types';
 
-export default function StoryViewer({ route, navigation }: any) {
-  const { user } = route.params || {};
+type Props = RootStackScreenProps<'StoryViewer'>;
+
+export default function StoryViewer({ route, navigation }: Props) {
+  const { user } = route.params;
   return (
     <View style={styles.root}>
       <Image source={{ uri: user?.avatar }} style={styles.bg} blurRadius={20} />

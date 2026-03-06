@@ -2,11 +2,12 @@ import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import type { RootStackScreenProps } from '@/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 
-export default function CriarPostagem({ navigation }: any) {
+export default function CriarPostagem({ navigation }: RootStackScreenProps<'CriarPostagem'>) {
   const [media, setMedia] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [tags, setTags] = useState<string>('');
