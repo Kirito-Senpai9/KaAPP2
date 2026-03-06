@@ -4,11 +4,12 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import type { RootStackScreenProps } from '@/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 
-export default function CriarStories({ navigation }: any) {
+export default function CriarStories({ navigation }: RootStackScreenProps<'CriarStories'>) {
   const [media, setMedia] = useState<{ uri: string; type: 'image'|'video' } | null>(null);
   const [caption, setCaption] = useState('');
   const [audience, setAudience] = useState<'publico'|'amigos'|'privado'>('publico');

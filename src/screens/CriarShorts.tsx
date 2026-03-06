@@ -2,11 +2,12 @@ import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import type { RootStackScreenProps } from '@/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 
-export default function CriarShorts({ navigation }: any) {
+export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarShorts'>) {
   const [video, setVideo] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const anim = useRef(new Animated.Value(1)).current;

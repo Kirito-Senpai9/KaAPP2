@@ -10,16 +10,7 @@ import CriarStories from '@/screens/CriarStories';
 import CriarPostagem from '@/screens/CriarPostagem';
 import CriarShorts from '@/screens/CriarShorts';
 import LiveSetup from '@/screens/LiveSetup';
-
-export type RootStackParamList = {
-  TelaLogin: undefined;
-  RootTabs: undefined;
-  StoryViewer: any;
-  CriarStories: undefined;
-  CriarPostagem: undefined;
-  CriarShorts: undefined;
-  LiveSetup: undefined;
-};
+import { RootStackParamList } from '@/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -31,7 +22,7 @@ export default function App() {
       <Stack.Navigator initialRouteName="TelaLogin" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
         <Stack.Screen name="RootTabs" component={KachanTabs} />
-        <Stack.Screen name="StoryViewer" component={StoryViewer as any} />
+        <Stack.Screen name="StoryViewer" component={StoryViewer} />
         <Stack.Screen name="CriarStories" component={CriarStories} />
         <Stack.Screen name="CriarPostagem" component={CriarPostagem} />
         <Stack.Screen name="CriarShorts" component={CriarShorts} />
