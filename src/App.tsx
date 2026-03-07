@@ -10,6 +10,7 @@ import CriarStories from '@/screens/CriarStories';
 import CriarPostagem from '@/screens/CriarPostagem';
 import CriarShorts from '@/screens/CriarShorts';
 import LiveSetup from '@/screens/LiveSetup';
+import ComentariosPostagem from '@/screens/ComentariosPostagem';
 import { RootStackParamList } from '@/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -23,6 +24,7 @@ export default function App() {
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
         <Stack.Screen name="RootTabs" component={KachanTabs} />
         <Stack.Screen name="StoryViewer" component={StoryViewer} />
+        <Stack.Screen name="ComentariosPostagem" component={ComentariosPostagem} />
         <Stack.Screen name="CriarStories" component={CriarStories} />
         <Stack.Screen name="CriarPostagem" component={CriarPostagem} />
         <Stack.Screen name="CriarShorts" component={CriarShorts} />
