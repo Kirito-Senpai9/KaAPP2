@@ -1,16 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React from 'react';
+import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
+import Animated, {
+  Easing,
+  interpolate,
+  interpolateColor,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
-// TELAS (ajuste os imports conforme seu projeto)
-import Telainicial from '../screens/Telainicial';   // Home
+import Telainicial from '../screens/Telainicial';
 import Shorts from '../screens/Shorts';
 import Comunidade from '../screens/Comunidade';
 import Perfil from '../screens/Perfil';
-import Criar from '../screens/Criar';                // fluxo de criação
+import Criar from '../screens/Criar';
 
 export type KachanTabParamList = {
   Home: undefined;
@@ -22,91 +29,120 @@ export type KachanTabParamList = {
 
 type RouteName = keyof KachanTabParamList;
 const Tab = createBottomTabNavigator<KachanTabParamList>();
+const AnimatedIonicon = Animated.createAnimatedComponent(Ionicons);
 
 const TABS: Array<{
   key: RouteName;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   activeIcon?: keyof typeof Ionicons.glyphMap;
-  isCenter?: boolean;
 }> = [
-  { key: 'Home',        label: 'Home',        icon: 'home-outline',        activeIcon: 'home' },
-  { key: 'Shorts',      label: 'Shorts',      icon: 'play-circle-outline', activeIcon: 'play-circle' },
-  { key: 'Criar',       label: 'Criar',       icon: 'add',                 isCenter: true },
-  { key: 'Comunidade',  label: 'Comunidade',  icon: 'people-outline',      activeIcon: 'people' },
-  { key: 'Perfil',      label: 'Perfil',      icon: 'person-circle-outline', activeIcon: 'person-circle' },
+  { key: 'Home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
+  { key: 'Shorts', label: 'Shorts', icon: 'play-circle-outline', activeIcon: 'play-circle' },
+  { key: 'Criar', label: 'Criar', icon: 'add-outline', activeIcon: 'add' },
+  { key: 'Comunidade', label: 'Comunidade', icon: 'people-outline', activeIcon: 'people' },
+  { key: 'Perfil', label: 'Perfil', icon: 'person-circle-outline', activeIcon: 'person-circle' },
 ];
 
-function IconAnimated({
+function TabIcon({
   name,
   activeName,
   label,
   focused,
+  onPress,
+  accessibilityState,
 }: {
   name: keyof typeof Ionicons.glyphMap;
   activeName?: keyof typeof Ionicons.glyphMap;
   label: string;
   focused: boolean;
+  onPress: () => void;
+  accessibilityState: { selected: true } | {};
 }) {
-  const s = useSharedValue(focused ? 1 : 0);
-  useEffect(() => { s.value = withSpring(focused ? 1 : 0); }, [focused]);
-  const iconStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 + s.value * 0.12 }] }));
+  const activeProgress = useSharedValue(focused ? 1 : 0);
+  const pressProgress = useSharedValue(0);
+
+  React.useEffect(() => {
+    activeProgress.value = withTiming(focused ? 1 : 0, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [focused, activeProgress]);
+
   const iconName = focused && activeName ? activeName : name;
-  const color = focused ? '#6C63FF' : '#A6ADCE';
-  const labelColor = focused ? '#FFFFFF' : '#A6ADCE';
+
+  const iconContainerStyle = useAnimatedStyle(() => {
+    const scale = interpolate(activeProgress.value + pressProgress.value, [0, 1.2], [1, 1.1]);
+    const translateY = interpolate(activeProgress.value, [0, 1], [0, -2]);
+
+    return {
+      transform: [{ translateY }, { scale }],
+    };
+  });
+
+  const labelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(activeProgress.value, [0, 1], ['#A6ADCE', '#FFFFFF']),
+  }));
+
+  const iconProps = useAnimatedProps(() => ({
+    color: interpolateColor(activeProgress.value, [0, 1], ['#A6ADCE', '#6C63FF']),
+  }));
+
   return (
-    <View style={{ alignItems: 'center' }}>
-      <Animated.View style={iconStyle}>
-        <Ionicons name={iconName} size={24} color={color} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+      onPress={onPress}
+      onPressIn={() => {
+        pressProgress.value = withTiming(0.14, { duration: 120, easing: Easing.out(Easing.quad) });
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
+      }}
+      style={styles.tab}
+    >
+      <Animated.View style={iconContainerStyle}>
+        <AnimatedIonicon name={iconName} size={24} animatedProps={iconProps} />
       </Animated.View>
-      <Text style={[styles.label, { color: labelColor }]} numberOfLines={1}>{label}</Text>
-    </View>
+      <Animated.Text style={[styles.label, labelStyle]} numberOfLines={1}>
+        {label}
+      </Animated.Text>
+    </Pressable>
   );
 }
 
 function KachanTabBar({ state, navigation }: BottomTabBarProps) {
   return (
-    <View style={styles.wrap}>
-      <View style={styles.row}>
-        {state.routes.map((route, index: number) => {
-          const isFocused = state.index === index;
-          const tab = TABS.find(t => t.key === route.name as RouteName)!;
+    <View pointerEvents="box-none" style={styles.wrap}>
+      <View style={styles.glassBar}>
+        <BlurView intensity={38} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.tintLayer} />
 
-          const onPress = () => {
-            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-            if (!isFocused && !event.defaultPrevented) navigation.navigate(route.name);
-          };
+        <View style={styles.row}>
+          {state.routes.map((route, index: number) => {
+            const isFocused = state.index === index;
+            const tab = TABS.find((t) => t.key === (route.name as RouteName));
 
-          if (tab.isCenter) {
+            if (!tab) return null;
+
+            const onPress = () => {
+              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+              if (!isFocused && !event.defaultPrevented) navigation.navigate(route.name);
+            };
+
             return (
-              <View key={route.key} style={styles.centerSlot}>
-                <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.centerBtn}>
-                  <LinearGradient colors={['#6C63FF', '#2230C3']} start={[0, 0]} end={[1, 1]} style={styles.centerBtnBg}>
-                    <Ionicons name={tab.icon} size={30} color="#fff" />
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            );
-          }
-
-          return (
-            <TouchableOpacity
-              key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              onPress={onPress}
-              activeOpacity={0.9}
-              style={styles.tab}
-            >
-              <IconAnimated
+              <TabIcon
+                key={route.key}
                 name={tab.icon}
                 activeName={tab.activeIcon}
                 label={tab.label}
                 focused={isFocused}
+                onPress={onPress}
+                accessibilityState={isFocused ? { selected: true } : {}}
               />
-            </TouchableOpacity>
-          );
-        })}
+            );
+          })}
+        </View>
       </View>
     </View>
   );
@@ -127,29 +163,50 @@ export default function KachanTabs() {
   );
 }
 
-const H = 72;
+const H = 74;
 
 const styles = StyleSheet.create({
   wrap: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    paddingHorizontal: 12, paddingBottom: Platform.select({ ios: 16, android: 12 }), paddingTop: 10,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 12,
+    paddingBottom: Platform.select({ ios: 18, android: 12 }),
+    paddingTop: 10,
+  },
+  glassBar: {
+    height: H,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOpacity: 0.26,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 16,
+    backgroundColor: 'rgba(21,24,47,0.35)',
+  },
+  tintLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(20,24,44,0.40)',
   },
   row: {
-    height: H,
-    borderRadius: 20,
-    backgroundColor: 'rgba(21,24,47,0.92)',
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
   },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', height: H },
-  label: { fontSize: 11, marginTop: 2, fontWeight: '600' },
-  centerSlot: { width: 86, alignItems: 'center', justifyContent: 'center', height: H },
-  centerBtn: {
-    borderRadius: 34, overflow: 'hidden', elevation: 10,
-    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 6 },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: H,
   },
-  centerBtnBg: {
-    width: 66, height: 66, borderRadius: 33, alignItems: 'center', justifyContent: 'center',
+  label: {
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: '600',
   },
 });
