@@ -10,7 +10,17 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 const { width } = Dimensions.get('window');
 
 type Story = { id: string; name: string; cover: string; avatar: string; };
-type Post  = { id: string; user: string; avatar: string; image: string; text: string; likes: number; comments: number; };
+type Post  = {
+  id: string;
+  user: string;
+  avatar: string;
+  image: string;
+  text: string;
+  likes: number;
+  comments: number;
+  reposts: number;
+  shares: number;
+};
 
 /* --- MOCK --- */
 const STORIES: Story[] = [
@@ -21,9 +31,41 @@ const STORIES: Story[] = [
 ];
 
 const POSTS: Post[] = [
-  { id: 'p1', user: 'Luna', avatar: 'https://i.pravatar.cc/150?img=2', image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1600&q=80&auto=format&fit=crop', text: 'Explorando um novo mapa hoje! #kachan', likes: 128, comments: 14 },
-  { id: 'p2', user: 'Kai',  avatar: 'https://i.pravatar.cc/150?img=3', image: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1600&q=80&auto=format&fit=crop', text: 'Live às 20h 🎮 cola lá!', likes: 245, comments: 30 },
+  {
+    id: 'p1',
+    user: 'Luna',
+    avatar: 'https://i.pravatar.cc/150?img=2',
+    image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1600&q=80&auto=format&fit=crop',
+    text: 'Explorando um novo mapa hoje! #kachan',
+    likes: 128,
+    comments: 14,
+    reposts: 8,
+    shares: 5,
+  },
+  {
+    id: 'p2',
+    user: 'Kai',
+    avatar: 'https://i.pravatar.cc/150?img=3',
+    image: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1600&q=80&auto=format&fit=crop',
+    text: 'Live às 20h 🎮 cola lá!',
+    likes: 245,
+    comments: 30,
+    reposts: 11,
+    shares: 7,
+  },
 ];
+
+const formatCompact = (value: number, divisor: number, suffix: 'K' | 'M') => {
+  const short = Math.round((value / divisor) * 10) / 10;
+  const display = Number.isInteger(short) ? `${short}` : `${short}`.replace('.', ',');
+  return `${display}${suffix}`;
+};
+
+const formatCount = (value: number) => {
+  if (value < 1000) return `${value}`;
+  if (value < 1_000_000) return formatCompact(value, 1000, 'K');
+  return formatCompact(value, 1_000_000, 'M');
+};
 
 /* --- Stories (rola junto no header) --- */
 const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
@@ -51,12 +93,14 @@ const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
 /* --- Card do Post (com animações) --- */
 const PostCard = memo(function PostCard({ item }: { item: Post }) {
   const [liked, setLiked] = useState(false);
+  const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const likeScale    = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
   const commentShake = useRef(new Animated.Value(0)).current;
   const shareX       = useRef(new Animated.Value(0)).current;
+  const repostScale  = useRef(new Animated.Value(1)).current;
   const saveRotateY  = useRef(new Animated.Value(0)).current;
 
   const handleLike = () => {
@@ -88,6 +132,14 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
     ]).start();
   };
 
+  const handleRepost = () => {
+    setReposted(v => !v);
+    Animated.sequence([
+      Animated.spring(repostScale, { toValue: 1.2, useNativeDriver: true }),
+      Animated.spring(repostScale, { toValue: 1, friction: 4, useNativeDriver: true }),
+    ]).start();
+  };
+
   const handleSave = () => {
     setSaved(v => !v);
     Animated.sequence([
@@ -116,10 +168,10 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
         <Image source={{ uri: item.image }} style={styles.media} />
       </View>
 
-      {/* Ações: esquerda (curtir/comentar/compartilhar) | direita (favoritar) */}
+      {/* Ações compactas: curtir, comentar, repostar e compartilhar + salvar */}
       <View style={styles.actions}>
         <View style={styles.actionsLeft}>
-          <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+          <Animated.View style={[styles.actionItem, { transform: [{ scale: likeScale }] }]}>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={handleLike}
@@ -130,9 +182,10 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
             >
               <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? '#FF5A8F' : '#E5E7F4'} />
             </TouchableOpacity>
+            <Text style={styles.actionCount}>{formatCount(item.likes + (liked ? 1 : 0))}</Text>
           </Animated.View>
 
-          <Animated.View style={{ transform: [{ scale: commentScale }, { translateX: commentOffset }] }}>
+          <Animated.View style={[styles.actionItem, { transform: [{ scale: commentScale }, { translateX: commentOffset }] }]}>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={handleComment}
@@ -143,9 +196,24 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
             >
               <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
+            <Text style={styles.actionCount}>{formatCount(item.comments)}</Text>
           </Animated.View>
 
-          <Animated.View style={{ transform: [{ translateX: shareTranslate }] }}>
+          <Animated.View style={[styles.actionItem, { transform: [{ scale: repostScale }] }]}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleRepost}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={reposted ? 'Desfazer repostagem' : 'Repostar'}
+            >
+              <Ionicons name="repeat" size={22} color={reposted ? '#7AF1A7' : '#E5E7F4'} />
+            </TouchableOpacity>
+            <Text style={styles.actionCount}>{formatCount(item.reposts + (reposted ? 1 : 0))}</Text>
+          </Animated.View>
+
+          <Animated.View style={[styles.actionItem, { transform: [{ translateX: shareTranslate }] }]}>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={handleShare}
@@ -156,6 +224,7 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
             >
               <Ionicons name="paper-plane-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
+            <Text style={styles.actionCount}>{formatCount(item.shares)}</Text>
           </Animated.View>
         </View>
 
@@ -173,7 +242,6 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
         </Animated.View>
       </View>
 
-      <Text style={styles.meta}>{item.likes + (liked ? 1 : 0)} curtidas • {item.comments} comentários</Text>
       <Text style={styles.caption}><Text style={styles.cardUser}>{item.user}</Text> {item.text}</Text>
     </View>
   );
@@ -264,11 +332,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 8, paddingTop: 8,
+    paddingHorizontal: 8,
+    paddingTop: 8,
   },
-  actionsLeft: { flexDirection: 'row', alignItems: 'center' },
-  actionBtn: { padding: 8 },
+  actionsLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionItem: { flexDirection: 'row', alignItems: 'center' },
+  actionBtn: { padding: 8, width: 38, alignItems: 'center' },
+  actionCount: {
+    color: '#BDC1DA',
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 22,
+    textAlign: 'left',
+    marginRight: 2,
+  },
 
-  meta: { color: '#BDC1DA', fontSize: 12, paddingHorizontal: 14, marginTop: 2 },
   caption: { color: '#E6E8F5', paddingHorizontal: 14, marginTop: 4 },
 });
