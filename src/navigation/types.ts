@@ -8,6 +8,15 @@ export type StoryUser = {
 export type RootStackParamList = {
   TelaLogin: undefined;
   RootTabs: undefined;
+  ComentariosPostagem: {
+    post: {
+      id: string;
+      user: string;
+      avatar: string;
+      text: string;
+      type: 'image' | 'video-vertical' | 'video-horizontal';
+    };
+  };
   StoryViewer: { user: StoryUser };
   CriarStories: undefined;
   CriarPostagem: undefined;

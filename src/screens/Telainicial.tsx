@@ -7,6 +7,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ResizeMode, Video } from 'expo-av';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/navigation/types';
 
 const { width } = Dimensions.get('window');
 
@@ -144,9 +147,13 @@ const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
 });
 
 /* --- Card do Post (com animações) --- */
-type PostCardProps = { item: Post; isVisible: boolean };
+type PostCardProps = {
+  item: Post;
+  isVisible: boolean;
+  onOpenComments: (post: Post) => void;
+};
 
-const PostCard = memo(function PostCard({ item, isVisible }: PostCardProps) {
+const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: PostCardProps) {
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -179,6 +186,8 @@ const PostCard = memo(function PostCard({ item, isVisible }: PostCardProps) {
         Animated.timing(commentShake, { toValue: 0, duration: 60, easing: Easing.linear, useNativeDriver: true }),
       ]),
     ]).start();
+
+    onOpenComments(item);
   };
 
   const handleShare = () => {
@@ -370,6 +379,7 @@ const PostCard = memo(function PostCard({ item, isVisible }: PostCardProps) {
 
 export default function Home() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
@@ -379,9 +389,23 @@ export default function Home() {
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
 
+  const openComments = useCallback((post: Post) => {
+    navigation.navigate('ComentariosPostagem', {
+      post: {
+        id: post.id,
+        user: post.user,
+        avatar: post.avatar,
+        text: post.text,
+        type: post.type,
+      },
+    });
+  }, [navigation]);
+
   const renderPost = useCallback(
-    ({ item }: { item: Post }) => <PostCard item={item} isVisible={visiblePostIds.includes(item.id)} />,
-    [visiblePostIds]
+    ({ item }: { item: Post }) => (
+      <PostCard item={item} isVisible={visiblePostIds.includes(item.id)} onOpenComments={openComments} />
+    ),
+    [openComments, visiblePostIds]
   );
 
   const FeedHeader = () => (
