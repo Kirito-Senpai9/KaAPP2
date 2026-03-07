@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -276,7 +276,20 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
   const [showStickers, setShowStickers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<StickerCategoryId>('recentes');
-  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const flattened = useMemo(() => flattenComments(comments), [comments]);
   const filteredStickers = useMemo(() => {
@@ -341,9 +354,9 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
       <KeyboardAvoidingView
         style={styles.content}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
-        enabled={Platform.OS === 'ios'}
+        enabled
       >
         <FlatList
           data={flattened}
@@ -361,14 +374,14 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
           style={styles.commentList}
           contentContainerStyle={{
             padding: 14,
-            paddingBottom: 120 + (isInputFocused ? 10 : insets.bottom + 10),
+            paddingBottom: 120 + (isKeyboardVisible ? 10 : insets.bottom + 10),
           }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
         />
 
-        <View style={[styles.composerWrap, { paddingBottom: isInputFocused ? 10 : insets.bottom + 10 }]}> 
+        <View style={[styles.composerWrap, { paddingBottom: isKeyboardVisible ? 10 : insets.bottom + 10 }]}> 
           {!!replyingTo && (
             <View style={styles.replyBadge}>
               <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
@@ -389,10 +402,8 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
                 if (showStickers) setShowStickers(false);
               }}
               onFocus={() => {
-                setIsInputFocused(true);
                 setShowStickers(false);
               }}
-              onBlur={() => setIsInputFocused(false)}
               placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
               placeholderTextColor="#8790BC"
               style={styles.input}
