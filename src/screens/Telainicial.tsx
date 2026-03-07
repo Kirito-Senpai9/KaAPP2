@@ -1,4 +1,4 @@
-import React, { memo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
   Animated, Dimensions, ImageBackground, Easing
@@ -6,16 +6,22 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ResizeMode, Video } from 'expo-av';
 
 const { width } = Dimensions.get('window');
 
 type Story = { id: string; name: string; cover: string; avatar: string; };
 type Post  = {
   id: string;
+  type: 'image' | 'video-vertical' | 'video-horizontal';
   user: string;
   avatar: string;
-  image: string;
+  image?: string;
+  video?: string;
+  thumbnail?: string;
   text: string;
+  hashtags?: string[];
+  timeLabel: string;
   likes: number;
   comments: number;
   reposts: number;
@@ -33,10 +39,12 @@ const STORIES: Story[] = [
 const POSTS: Post[] = [
   {
     id: 'p1',
+    type: 'image',
     user: 'Luna',
     avatar: 'https://i.pravatar.cc/150?img=2',
     image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1600&q=80&auto=format&fit=crop',
     text: 'Explorando um novo mapa hoje! #kachan',
+    timeLabel: 'agora',
     likes: 128,
     comments: 14,
     reposts: 8,
@@ -44,14 +52,59 @@ const POSTS: Post[] = [
   },
   {
     id: 'p2',
+    type: 'video-vertical',
     user: 'Kai',
     avatar: 'https://i.pravatar.cc/150?img=3',
-    image: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1600&q=80&auto=format&fit=crop',
-    text: 'Live às 20h 🎮 cola lá!',
+    video: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1200&q=80&auto=format&fit=crop',
+    text: 'Treino rápido de hoje no competitivo!',
+    hashtags: ['#kachan', '#ranked'],
+    timeLabel: 'há 3 min',
     likes: 245,
     comments: 30,
     reposts: 11,
     shares: 7,
+  },
+  {
+    id: 'p3',
+    type: 'image',
+    user: 'Mina',
+    avatar: 'https://i.pravatar.cc/150?img=4',
+    image: 'https://images.unsplash.com/photo-1520975594081-3a43b00abd98?w=1600&q=80&auto=format&fit=crop',
+    text: 'Setup novo pronto para a próxima live ✨',
+    timeLabel: 'há 12 min',
+    likes: 319,
+    comments: 58,
+    reposts: 16,
+    shares: 10,
+  },
+  {
+    id: 'p4',
+    type: 'video-horizontal',
+    user: 'Noah',
+    avatar: 'https://i.pravatar.cc/150?img=5',
+    video: 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1400&q=80&auto=format&fit=crop',
+    text: 'Highlights da scrim de ontem.',
+    hashtags: ['#esports', '#kachan'],
+    timeLabel: 'há 25 min',
+    likes: 542,
+    comments: 77,
+    reposts: 23,
+    shares: 18,
+  },
+  {
+    id: 'p5',
+    type: 'image',
+    user: 'Luna',
+    avatar: 'https://i.pravatar.cc/150?img=2',
+    image: 'https://images.unsplash.com/photo-1560253023-3ec5d502959f?w=1600&q=80&auto=format&fit=crop',
+    text: 'Time fechado para o torneio 🏆',
+    timeLabel: 'há 1 h',
+    likes: 902,
+    comments: 129,
+    reposts: 48,
+    shares: 32,
   },
 ];
 
@@ -91,10 +144,13 @@ const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
 });
 
 /* --- Card do Post (com animações) --- */
-const PostCard = memo(function PostCard({ item }: { item: Post }) {
+type PostCardProps = { item: Post; isVisible: boolean };
+
+const PostCard = memo(function PostCard({ item, isVisible }: PostCardProps) {
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isHorizontalPlaying, setIsHorizontalPlaying] = useState(false);
 
   const likeScale    = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
@@ -151,6 +207,73 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
   const shareTranslate = shareX.interpolate({ inputRange: [0, 1], outputRange: [0, 10] });
   const saveRotateDeg  = saveRotateY.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
   const commentOffset  = commentShake.interpolate({ inputRange: [-1, 1], outputRange: [-3, 3] });
+  const postTags = item.hashtags?.join(' ') ?? '';
+
+  useEffect(() => {
+    if (!isVisible && isHorizontalPlaying) {
+      setIsHorizontalPlaying(false);
+    }
+  }, [isHorizontalPlaying, isVisible]);
+
+  const renderMedia = () => {
+    if (item.type === 'image' && item.image) {
+      return (
+        <View style={styles.mediaWrap}>
+          <Image source={{ uri: item.image }} style={styles.media} />
+        </View>
+      );
+    }
+
+    if (item.type === 'video-vertical' && item.video) {
+      return (
+        <View style={styles.verticalVideoWrap}>
+          <Video
+            source={{ uri: item.video }}
+            style={styles.verticalVideo}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={isVisible}
+            isLooping
+            isMuted
+            usePoster
+            posterSource={item.thumbnail ? { uri: item.thumbnail } : undefined}
+          />
+        </View>
+      );
+    }
+
+    if (item.type === 'video-horizontal' && item.video) {
+      return (
+        <View style={styles.horizontalVideoWrap}>
+          <Video
+            source={{ uri: item.video }}
+            style={styles.horizontalVideo}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={isHorizontalPlaying}
+            usePoster
+            posterSource={item.thumbnail ? { uri: item.thumbnail } : undefined}
+            onPlaybackStatusUpdate={(status) => {
+              if (status.isLoaded && status.didJustFinish) {
+                setIsHorizontalPlaying(false);
+              }
+            }}
+          />
+
+          {!isHorizontalPlaying && (
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={() => setIsHorizontalPlaying(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Reproduzir vídeo"
+            >
+              <Ionicons name="play" size={30} color="#F8F9FF" />
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <View style={styles.card}>
@@ -158,15 +281,12 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
         <Image source={{ uri: item.avatar }} style={styles.cardAvatar} />
         <View style={{ flex: 1 }}>
           <Text style={styles.cardUser}>{item.user}</Text>
-          <Text style={styles.cardSub}>agora • público</Text>
+          <Text style={styles.cardSub}>{item.timeLabel} • público</Text>
         </View>
         <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
       </View>
 
-      {/* mídia: usa aspectRatio para evitar reflow no web */}
-      <View style={styles.mediaWrap}>
-        <Image source={{ uri: item.image }} style={styles.media} />
-      </View>
+      {renderMedia()}
 
       {/* Ações compactas: curtir, comentar, repostar e compartilhar + salvar */}
       <View style={styles.actions}>
@@ -243,12 +363,26 @@ const PostCard = memo(function PostCard({ item }: { item: Post }) {
       </View>
 
       <Text style={styles.caption}><Text style={styles.cardUser}>{item.user}</Text> {item.text}</Text>
+      {!!postTags && <Text style={styles.tags}>{postTags}</Text>}
     </View>
   );
 });
 
 export default function Home() {
   const insets = useSafeAreaInsets();
+  const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
+    const ids = viewableItems.map((entry) => entry.item.id);
+    setVisiblePostIds(ids);
+  }).current;
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
+
+  const renderPost = useCallback(
+    ({ item }: { item: Post }) => <PostCard item={item} isVisible={visiblePostIds.includes(item.id)} />,
+    [visiblePostIds]
+  );
 
   const FeedHeader = () => (
     <View style={styles.storiesWrap}>
@@ -280,11 +414,13 @@ export default function Home() {
       <FlatList
         data={POSTS}
         keyExtractor={(p) => p.id}
-        renderItem={({ item }) => <PostCard item={item} />}
+        renderItem={renderPost}
         ListHeaderComponent={FeedHeader}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
         removeClippedSubviews={false}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
       />
     </SafeAreaView>
   );
@@ -328,6 +464,41 @@ const styles = StyleSheet.create({
   mediaWrap: { width, backgroundColor: '#15182f' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
 
+  verticalVideoWrap: {
+    width,
+    alignItems: 'center',
+    backgroundColor: '#15182f',
+    paddingVertical: 10,
+  },
+  verticalVideo: {
+    width: width * 0.74,
+    aspectRatio: 9 / 16,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#0A0C1A',
+  },
+
+  horizontalVideoWrap: {
+    width,
+    aspectRatio: 16 / 9,
+    backgroundColor: '#15182f',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  horizontalVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  playButton: {
+    position: 'absolute',
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(14, 14, 18, 0.55)',
+  },
+
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -348,4 +519,5 @@ const styles = StyleSheet.create({
   },
 
   caption: { color: '#E6E8F5', paddingHorizontal: 14, marginTop: 4 },
+  tags: { color: '#98A0CA', paddingHorizontal: 14, marginTop: 3, fontWeight: '600' },
 });
