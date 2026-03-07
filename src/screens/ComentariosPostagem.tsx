@@ -338,28 +338,31 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
         </View>
       </View>
 
-      <FlatList
-        data={flattened}
-        keyExtractor={(item) => item.comment.id}
-        renderItem={({ item }) => (
-          <CommentRow
-            entry={item}
-            onReply={(comment) => {
-              setReplyingTo(comment);
-              setShowStickers(false);
-            }}
-            onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
-          />
-        )}
-        style={styles.commentList}
-        contentContainerStyle={{ padding: 14, paddingBottom: 120 + insets.bottom }}
-        showsVerticalScrollIndicator={false}
-      />
-
       <KeyboardAvoidingView
+        style={styles.content}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 18}
       >
+        <FlatList
+          data={flattened}
+          keyExtractor={(item) => item.comment.id}
+          renderItem={({ item }) => (
+            <CommentRow
+              entry={item}
+              onReply={(comment) => {
+                setReplyingTo(comment);
+                setShowStickers(false);
+              }}
+              onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+            />
+          )}
+          style={styles.commentList}
+          contentContainerStyle={{ padding: 14, paddingBottom: 120 + insets.bottom }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          showsVerticalScrollIndicator={false}
+        />
+
         <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 10 }]}> 
           {!!replyingTo && (
             <View style={styles.replyBadge}>
@@ -439,6 +442,7 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
+  content: { flex: 1 },
   header: {
     minHeight: 56,
     flexDirection: 'row',
