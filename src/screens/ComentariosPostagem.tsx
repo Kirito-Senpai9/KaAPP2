@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -29,7 +30,11 @@ type CommentItem = {
   likes: number;
   liked?: boolean;
   replies: CommentItem[];
-  sticker?: string;
+  sticker?: {
+    label: string;
+    uri: string;
+    animated?: boolean;
+  };
 };
 
 type FlattenedComment = {
@@ -43,7 +48,77 @@ const CURRENT_USER = {
   avatar: 'https://i.pravatar.cc/150?img=11',
 };
 
-const STICKERS = ['🔥 GG', '😂 kkkkk', '👏 Nice', '🫡 Respeito', '🎯 Hit', '💜 KaAPP'];
+type StickerCategoryId = 'recentes' | 'favoritos' | 'packs' | 'animados' | 'estaticos';
+
+type StickerItem = {
+  id: string;
+  label: string;
+  uri: string;
+  category: StickerCategoryId;
+  animated?: boolean;
+};
+
+const STICKER_CATEGORIES: { id: StickerCategoryId; label: string }[] = [
+  { id: 'recentes', label: 'Recentes' },
+  { id: 'favoritos', label: 'Favoritos' },
+  { id: 'packs', label: 'Packs' },
+  { id: 'animados', label: 'Animados' },
+  { id: 'estaticos', label: 'Estáticos' },
+];
+
+const STICKERS: StickerItem[] = [
+  {
+    id: 's1',
+    label: 'KaAPP Glow',
+    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWhxczB5d2x6dDR0YW53Z29hamU2ejI5cjRheDFqaW9iM2x0MjNqaiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xUPGcvDelgloOjwuFG/giphy.gif',
+    category: 'animados',
+    animated: true,
+  },
+  {
+    id: 's2',
+    label: 'GG',
+    uri: 'https://images.unsplash.com/photo-1618005198919-d3d4b5a92eee?auto=format&fit=crop&w=220&q=80',
+    category: 'estaticos',
+  },
+  {
+    id: 's3',
+    label: 'KaAPP Heart',
+    uri: 'https://images.unsplash.com/photo-1614332287897-cdc485fa562d?auto=format&fit=crop&w=220&q=80',
+    category: 'favoritos',
+  },
+  {
+    id: 's4',
+    label: 'Party',
+    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHp2N2V4N3c1enA3a21jOG44M2RhZnRhaW9ya2VjaW9mdzNlOWo3aSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/YnBntKOgnUSBkV7bQH/giphy.gif',
+    category: 'recentes',
+    animated: true,
+  },
+  {
+    id: 's5',
+    label: 'Foco',
+    uri: 'https://images.unsplash.com/photo-1617791160505-6f00504e3519?auto=format&fit=crop&w=220&q=80',
+    category: 'packs',
+  },
+  {
+    id: 's6',
+    label: 'KaAPP Fire',
+    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3BydDZ6eXQ2Y2FyZ2N6dzVwaG81M2J0d2RmcjNlNDhtOWR5NGQ0dSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/5VKbvrjxpVJCM/giphy.gif',
+    category: 'animados',
+    animated: true,
+  },
+  {
+    id: 's7',
+    label: 'Vibe',
+    uri: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=220&q=80',
+    category: 'recentes',
+  },
+  {
+    id: 's8',
+    label: 'Ranked',
+    uri: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=220&q=80',
+    category: 'packs',
+  },
+];
 
 const INITIAL_COMMENTS: CommentItem[] = [
   {
@@ -165,7 +240,10 @@ function CommentRow({
         </View>
 
         {!!entry.comment.sticker ? (
-          <Text style={styles.stickerText}>{entry.comment.sticker}</Text>
+          <View style={styles.stickerCommentWrap}>
+            <Image source={{ uri: entry.comment.sticker.uri }} style={styles.stickerImage} resizeMode="cover" />
+            <Text style={styles.stickerCaption}>{entry.comment.sticker.label}</Text>
+          </View>
         ) : (
           <Text style={styles.commentText}>{entry.comment.content}</Text>
         )}
@@ -197,10 +275,22 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
   const [input, setInput] = useState('');
   const [showStickers, setShowStickers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<StickerCategoryId>('recentes');
 
   const flattened = useMemo(() => flattenComments(comments), [comments]);
+  const filteredStickers = useMemo(() => {
+    if (selectedCategory === 'animados') {
+      return STICKERS.filter((sticker) => sticker.animated);
+    }
 
-  const sendComment = (sticker?: string) => {
+    if (selectedCategory === 'estaticos') {
+      return STICKERS.filter((sticker) => !sticker.animated);
+    }
+
+    return STICKERS.filter((sticker) => sticker.category === selectedCategory);
+  }, [selectedCategory]);
+
+  const sendComment = (sticker?: CommentItem['sticker']) => {
     const message = input.trim();
     if (!sticker && !message) return;
 
@@ -227,6 +317,11 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
     setInput('');
     setShowStickers(false);
     setReplyingTo(null);
+  };
+
+  const toggleStickerPanel = () => {
+    Keyboard.dismiss();
+    setShowStickers((prev) => !prev);
   };
 
   return (
@@ -261,7 +356,10 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
         showsVerticalScrollIndicator={false}
       />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={84}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 18}
+      >
         <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 10 }]}> 
           {!!replyingTo && (
             <View style={styles.replyBadge}>
@@ -272,31 +370,67 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
             </View>
           )}
 
-          {showStickers && (
-            <View style={styles.stickerPanel}>
-              {STICKERS.map((sticker) => (
-                <Pressable key={sticker} style={styles.stickerChip} onPress={() => sendComment(sticker)}>
-                  <Text style={styles.stickerChipText}>{sticker}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-
           <View style={styles.composerRow}>
+            <TouchableOpacity style={styles.emojiBtn} onPress={toggleStickerPanel}>
+              <Ionicons name="happy-outline" size={22} color="#D6DBF6" />
+            </TouchableOpacity>
             <TextInput
               value={input}
-              onChangeText={setInput}
+              onChangeText={(text) => {
+                setInput(text);
+                if (showStickers) setShowStickers(false);
+              }}
+              onFocus={() => setShowStickers(false)}
               placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
               placeholderTextColor="#8790BC"
               style={styles.input}
             />
-            <TouchableOpacity style={styles.emojiBtn} onPress={() => setShowStickers((v) => !v)}>
-              <Ionicons name="happy-outline" size={22} color="#D6DBF6" />
-            </TouchableOpacity>
             <TouchableOpacity style={styles.sendBtn} onPress={() => sendComment()}>
               <Ionicons name="paper-plane" size={18} color="#F7F8FF" />
             </TouchableOpacity>
           </View>
+
+          {showStickers && (
+            <View style={styles.stickerPanel}>
+              <FlatList
+                data={STICKER_CATEGORIES}
+                horizontal
+                keyExtractor={(item) => item.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryBar}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[styles.categoryChip, selectedCategory === item.id && styles.categoryChipActive]}
+                    onPress={() => setSelectedCategory(item.id)}
+                  >
+                    <Text style={[styles.categoryChipText, selectedCategory === item.id && styles.categoryChipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+
+              <FlatList
+                data={filteredStickers}
+                keyExtractor={(item) => item.id}
+                numColumns={4}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.stickersGrid}
+                columnWrapperStyle={styles.stickersGridRow}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={styles.stickerCard}
+                    onPress={() => sendComment({ label: item.label, uri: item.uri, animated: item.animated })}
+                  >
+                    <Image source={{ uri: item.uri }} style={styles.stickerCardImage} resizeMode="cover" />
+                    <Text style={styles.stickerCardLabel} numberOfLines={1}>
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -349,7 +483,18 @@ const styles = StyleSheet.create({
   commentUser: { color: '#FFFFFF', fontWeight: '700' },
   commentTime: { color: '#94A0CD', fontSize: 11 },
   commentText: { color: '#E6E9FA', fontSize: 15, lineHeight: 21, marginTop: 4 },
-  stickerText: { color: '#F5F7FF', fontSize: 22, marginTop: 6 },
+  stickerCommentWrap: {
+    marginTop: 8,
+    gap: 6,
+  },
+  stickerImage: {
+    width: 132,
+    height: 132,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  stickerCaption: { color: '#C8D0F5', fontSize: 12, fontWeight: '600' },
   commentActions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 },
   actionGhostBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   actionGhostText: { color: '#AEB4D6', fontSize: 12, fontWeight: '600' },
@@ -373,21 +518,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   replyBadgeText: { color: '#DCE1FF', fontSize: 12, fontWeight: '600' },
-  stickerPanel: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 10,
-  },
-  stickerChip: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-  },
-  stickerChipText: { color: '#ECF0FF', fontWeight: '600' },
   composerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -400,6 +530,64 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, color: '#FFFFFF', fontSize: 15, paddingHorizontal: 8, paddingVertical: 10 },
   emojiBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  stickerPanel: {
+    marginTop: 10,
+    maxHeight: 280,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(11,14,28,0.98)',
+    overflow: 'hidden',
+  },
+  categoryBar: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
+  },
+  categoryChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  categoryChipActive: {
+    backgroundColor: 'rgba(108,99,255,0.28)',
+    borderColor: 'rgba(108,99,255,0.66)',
+  },
+  categoryChipText: { color: '#D5DBF9', fontSize: 12, fontWeight: '600' },
+  categoryChipTextActive: { color: '#F2F4FF' },
+  stickersGrid: {
+    padding: 10,
+    gap: 10,
+  },
+  stickersGridRow: {
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  stickerCard: {
+    flex: 1,
+    maxWidth: '25%',
+    borderRadius: 10,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  stickerCardImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+  },
+  stickerCardLabel: {
+    color: '#E7EBFF',
+    fontSize: 10,
+    marginTop: 4,
+    textAlign: 'center',
+  },
   sendBtn: {
     width: 36,
     height: 36,
