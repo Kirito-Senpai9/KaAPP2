@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
   Animated, Dimensions, ImageBackground, Easing
@@ -6,7 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ResizeMode, Video } from 'expo-av';
+import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/navigation/types';
@@ -240,7 +240,11 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [isHorizontalPlaying, setIsHorizontalPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPausedByUser, setIsPausedByUser] = useState(false);
+  const [hasEnded, setHasEnded] = useState(false);
+  const videoRef = useRef<Video | null>(null);
 
   const likeScale    = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
@@ -301,11 +305,44 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
   const commentOffset  = commentShake.interpolate({ inputRange: [-1, 1], outputRange: [-3, 3] });
   const postTags = item.hashtags?.join(' ') ?? '';
 
-  useEffect(() => {
-    if (!isVisible && isHorizontalPlaying) {
-      setIsHorizontalPlaying(false);
+  const isVideoPost = item.type === 'video-horizontal' || item.type === 'video-vertical';
+  const shouldAutoPlay = isVisible && !isPausedByUser && !hasEnded;
+
+  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) return;
+
+    setIsPlaying(status.isPlaying);
+
+    if (status.didJustFinish) {
+      setHasEnded(true);
+      setIsPausedByUser(false);
+      setIsPlaying(false);
     }
-  }, [isHorizontalPlaying, isVisible]);
+  };
+
+  const handleVideoPress = async () => {
+    if (!isVideoPost) return;
+
+    if (hasEnded) {
+      setHasEnded(false);
+      setIsPausedByUser(false);
+      await videoRef.current?.setPositionAsync(0);
+      return;
+    }
+
+    if (isPlaying) {
+      setIsPausedByUser(true);
+      return;
+    }
+
+    setIsPausedByUser(false);
+  };
+
+  const handleReplay = async () => {
+    setHasEnded(false);
+    setIsPausedByUser(false);
+    await videoRef.current?.setPositionAsync(0);
+  };
 
   const renderMedia = () => {
     if (item.type === 'image' && item.image) {
@@ -316,51 +353,59 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
       );
     }
 
-    if (item.type === 'video-vertical' && item.video) {
+    if (isVideoPost && item.video) {
+      const isVertical = item.type === 'video-vertical';
+
       return (
-        <View style={styles.verticalVideoWrap}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={[styles.videoWrap, isVertical ? styles.verticalVideoWrap : styles.horizontalVideoWrap]}
+          onPress={handleVideoPress}
+        >
           <Video
+            ref={videoRef}
             source={{ uri: item.video }}
-            style={styles.verticalVideo}
+            style={styles.video}
             resizeMode={ResizeMode.COVER}
-            shouldPlay={isVisible}
-            isLooping
-            isMuted
+            shouldPlay={shouldAutoPlay}
+            isLooping={false}
+            isMuted={isMuted}
             usePoster
             posterSource={item.thumbnail ? { uri: item.thumbnail } : undefined}
-          />
-        </View>
-      );
-    }
-
-    if (item.type === 'video-horizontal' && item.video) {
-      return (
-        <View style={styles.horizontalVideoWrap}>
-          <Video
-            source={{ uri: item.video }}
-            style={styles.horizontalVideo}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={isHorizontalPlaying}
-            usePoster
-            posterSource={item.thumbnail ? { uri: item.thumbnail } : undefined}
-            onPlaybackStatusUpdate={(status) => {
-              if (status.isLoaded && status.didJustFinish) {
-                setIsHorizontalPlaying(false);
-              }
-            }}
+            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           />
 
-          {!isHorizontalPlaying && (
+          <TouchableOpacity
+            style={styles.muteButton}
+            onPress={() => setIsMuted((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel={isMuted ? 'Ativar som' : 'Silenciar vídeo'}
+          >
+            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={18} color="#F8F9FF" />
+          </TouchableOpacity>
+
+          {!isPlaying && isVisible && isPausedByUser && !hasEnded && (
             <TouchableOpacity
-              style={styles.playButton}
-              onPress={() => setIsHorizontalPlaying(true)}
+              style={styles.centerButton}
+              onPress={handleVideoPress}
               accessibilityRole="button"
-              accessibilityLabel="Reproduzir vídeo"
+              accessibilityLabel="Continuar vídeo"
             >
               <Ionicons name="play" size={30} color="#F8F9FF" />
             </TouchableOpacity>
           )}
-        </View>
+
+          {hasEnded && (
+            <TouchableOpacity
+              style={styles.centerButton}
+              onPress={handleReplay}
+              accessibilityRole="button"
+              accessibilityLabel="Reproduzir vídeo novamente"
+            >
+              <Ionicons name="refresh" size={28} color="#F8F9FF" />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
       );
     }
 
@@ -580,32 +625,20 @@ const styles = StyleSheet.create({
   mediaWrap: { width, backgroundColor: '#15182f' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
 
-  verticalVideoWrap: {
+  videoWrap: {
     width,
-    alignItems: 'center',
-    backgroundColor: '#15182f',
-    paddingVertical: 10,
-  },
-  verticalVideo: {
-    width: width * 0.74,
-    aspectRatio: 9 / 16,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: '#0A0C1A',
-  },
-
-  horizontalVideoWrap: {
-    width,
-    aspectRatio: 16 / 9,
     backgroundColor: '#15182f',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
-  horizontalVideo: {
+  verticalVideoWrap: { aspectRatio: 9 / 16 },
+  horizontalVideoWrap: { aspectRatio: 16 / 9 },
+  video: {
     width: '100%',
     height: '100%',
   },
-  playButton: {
+  centerButton: {
     position: 'absolute',
     width: 62,
     height: 62,
@@ -613,6 +646,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(14, 14, 18, 0.55)',
+  },
+  muteButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(14, 14, 18, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   actions: {
