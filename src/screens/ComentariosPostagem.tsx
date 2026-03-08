@@ -342,9 +342,9 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
       <KeyboardAvoidingView
         style={styles.content}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={keyboardOffset}
-        enabled
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? keyboardOffset : 0}
+        enabled={Platform.OS === 'ios'}
       >
         <FlatList
           data={flattened}
