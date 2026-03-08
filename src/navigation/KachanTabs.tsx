@@ -151,7 +151,17 @@ function KachanTabBar({ state, navigation }: BottomTabBarProps) {
 export default function KachanTabs() {
   return (
     <Tab.Navigator
-      screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: { display: 'none' },
+        animation: 'shift',
+        transitionSpec: {
+          animation: 'timing',
+          config: {
+            duration: 240,
+          },
+        },
+      }}
       tabBar={(props) => <KachanTabBar {...props} />}
     >
       <Tab.Screen name="Home" component={Telainicial} />
