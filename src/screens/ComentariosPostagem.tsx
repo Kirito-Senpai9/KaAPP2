@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -276,20 +276,6 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
   const [showStickers, setShowStickers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<StickerCategoryId>('recentes');
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   const flattened = useMemo(() => flattenComments(comments), [comments]);
   const filteredStickers = useMemo(() => {
@@ -374,14 +360,14 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
           style={styles.commentList}
           contentContainerStyle={{
             padding: 14,
-            paddingBottom: 120 + (isKeyboardVisible ? 10 : insets.bottom + 10),
+            paddingBottom: 120 + insets.bottom,
           }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
         />
 
-        <View style={[styles.composerWrap, { paddingBottom: isKeyboardVisible ? 10 : insets.bottom + 10 }]}> 
+        <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 10 }]}> 
           {!!replyingTo && (
             <View style={styles.replyBadge}>
               <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
