@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
@@ -36,6 +36,8 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [videoDurationMs, setVideoDurationMs] = useState(0);
   const [videoPositionMs, setVideoPositionMs] = useState(0);
   const [emojiFx, setEmojiFx] = useState<string | null>(null);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -182,6 +184,25 @@ export default function StoryViewer({ route, navigation }: Props) {
 
   useEffect(() => () => clearStoryTimer(), [clearStoryTimer]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = Keyboard.addListener(showEvent, (event) => {
+      const offset = Math.max(event.endCoordinates.height - insets.bottom + 10, 0);
+      setKeyboardOffset(offset);
+    });
+
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardOffset(0);
+    });
+
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [insets.bottom]);
+
   const onVideoStatus = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
 
@@ -270,7 +291,7 @@ export default function StoryViewer({ route, navigation }: Props) {
             })}
           </View>
 
-          <View style={[styles.header, { marginTop: insets.top + 4 }]}> 
+          <View style={[styles.header, { marginTop: insets.top + 4 }]}>
             <View style={styles.userInfo}>
               <Image source={{ uri: currentUser.avatar }} style={styles.avatar} />
               <Text style={styles.userText}>{currentUser.name} • {currentStory.postedAt}</Text>
@@ -297,11 +318,7 @@ export default function StoryViewer({ route, navigation }: Props) {
           <Pressable style={styles.tapSide} onPress={goNext} onPressIn={handleHoldStart} onPressOut={handleHoldEnd} />
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.bottomArea}
-          behavior={Platform.select({ ios: 'padding', android: undefined })}
-          keyboardVerticalOffset={14}
-        >
+        <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
           {!!currentStory.overlays?.length && (
             <View style={styles.overlayBadgeWrap}>
               {currentStory.overlays.map((overlay) => (
@@ -316,22 +333,28 @@ export default function StoryViewer({ route, navigation }: Props) {
             <TextInput
               value={input}
               onChangeText={setInput}
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
               placeholder="Enviar mensagem..."
               placeholderTextColor="#AEB2C8"
               style={styles.input}
             />
             <View style={styles.reactionRow}>
-              {REACTIONS.map((emoji) => (
-                <TouchableOpacity key={emoji} onPress={() => showReactionFx(emoji)} style={styles.reactionBtn}>
-                  <Text style={styles.reactionText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
+              {isInputFocused && (
+                <View style={styles.suggestionWrap}>
+                  {REACTIONS.map((emoji) => (
+                    <TouchableOpacity key={emoji} onPress={() => showReactionFx(emoji)} style={styles.reactionBtn}>
+                      <Text style={styles.reactionText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               <TouchableOpacity style={styles.shareBtn}>
                 <Ionicons name="paper-plane-outline" size={18} color="#fff" />
               </TouchableOpacity>
             </View>
           </BlurView>
-        </KeyboardAvoidingView>
+        </View>
 
         {emojiFx && (
           <Animated.View style={styles.emojiFx}>
@@ -451,33 +474,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   interactionBar: {
-    borderRadius: 18,
-    paddingVertical: 10,
+    borderRadius: 22,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
   },
   input: {
-    color: '#fff',
-    borderRadius: 14,
+    color: '#FFFFFF',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(0,0,0,0.18)',
-    height: 40,
-    paddingHorizontal: 12,
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    minHeight: 44,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontWeight: '600',
     marginBottom: 10,
   },
   reactionRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 36,
+  },
+  suggestionWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   reactionBtn: {
-    marginRight: 8,
     paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   reactionText: {
-    fontSize: 19,
+    fontSize: 18,
   },
   shareBtn: {
     marginLeft: 'auto',
