@@ -72,8 +72,8 @@ function TabIcon({
   const iconName = focused && activeName ? activeName : name;
 
   const iconContainerStyle = useAnimatedStyle(() => {
-    const scale = interpolate(activeProgress.value + pressProgress.value, [0, 1.25], [1, 1.12]);
-    const translateY = interpolate(activeProgress.value, [0, 1], [0, -3]);
+    const scale = interpolate(activeProgress.value + pressProgress.value, [0, 1.2], [1, 1.05]);
+    const translateY = interpolate(activeProgress.value, [0, 1], [0, -1]);
 
     return {
       transform: [{ translateY }, { scale }],
@@ -81,8 +81,8 @@ function TabIcon({
   });
 
   const iconGlowStyle = useAnimatedStyle(() => {
-    const glowStrength = interpolate(activeProgress.value, [0, 1], [0, 1]);
-    const glowScale = interpolate(activeProgress.value + pressProgress.value, [0, 1.3], [0.86, 1.1]);
+    const glowStrength = interpolate(activeProgress.value, [0, 1], [0, 0.62]);
+    const glowScale = interpolate(activeProgress.value + pressProgress.value, [0, 1.3], [0.9, 1.02]);
 
     return {
       opacity: glowStrength,
@@ -105,7 +105,7 @@ function TabIcon({
       accessibilityState={accessibilityState}
       onPress={onPress}
       onPressIn={() => {
-        pressProgress.value = withTiming(0.14, { duration: 120, easing: Easing.out(Easing.quad) });
+        pressProgress.value = withTiming(0.08, { duration: 120, easing: Easing.out(Easing.quad) });
       }}
       onPressOut={() => {
         pressProgress.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.quad) });
@@ -151,7 +151,7 @@ function KachanTabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
       <View style={styles.glassBar}>
-        <BlurView intensity={72} tint="dark" style={StyleSheet.absoluteFill} />
+        <BlurView intensity={95} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.tintLayer} />
         <View style={styles.edgeHighlight} />
 
@@ -228,16 +228,16 @@ const styles = StyleSheet.create({
   },
   glassBar: {
     height: H,
-    borderRadius: 32,
+    borderRadius: 38,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(147,154,255,0.22)',
+    borderColor: 'rgba(147,154,255,0.16)',
     shadowColor: '#0A0C20',
-    shadowOpacity: 0.32,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 18,
-    backgroundColor: 'rgba(18,22,43,0.36)',
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+    backgroundColor: 'rgba(18,22,43,0.30)',
   },
   tintLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -255,28 +255,26 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 10,
   },
   activeTrack: {
     position: 'absolute',
-    top: 8,
-    bottom: 8,
+    top: 10,
+    bottom: 10,
     left: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   activeTrackInner: {
-    width: '78%',
+    width: '74%',
     height: '100%',
-    borderRadius: 24,
-    backgroundColor: 'rgba(108,99,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(133,124,255,0.28)',
+    borderRadius: 22,
+    backgroundColor: 'rgba(108,99,255,0.10)',
     shadowColor: '#6C63FF',
-    shadowOpacity: 0.36,
-    shadowRadius: 16,
+    shadowOpacity: 0.18,
+    shadowRadius: 9,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    elevation: 1,
   },
   tab: {
     flex: 1,
@@ -292,15 +290,15 @@ const styles = StyleSheet.create({
   },
   iconGlow: {
     position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(108,99,255,0.26)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(122,114,255,0.20)',
     shadowColor: '#6C63FF',
-    shadowOpacity: 0.55,
-    shadowRadius: 13,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 4,
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 2,
   },
   label: {
     marginTop: 3,
