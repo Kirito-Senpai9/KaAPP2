@@ -324,6 +324,8 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
     setShowStickers((prev) => !prev);
   };
 
+  const keyboardOffset = insets.top + 56;
+
   return (
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#121532', '#0E0E12']} start={[0, 0]} end={[1, 1]} style={StyleSheet.absoluteFill} />
@@ -340,8 +342,8 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
       <KeyboardAvoidingView
         style={styles.content}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={keyboardOffset}
         enabled
       >
         <FlatList
