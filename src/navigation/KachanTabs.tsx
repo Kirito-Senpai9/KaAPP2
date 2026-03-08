@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Pressable, StyleSheet, Platform, LayoutChangeEvent } from 'react-native';
 import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -64,7 +64,7 @@ function TabIcon({
 
   React.useEffect(() => {
     activeProgress.value = withTiming(focused ? 1 : 0, {
-      duration: 220,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
     });
   }, [focused, activeProgress]);
@@ -72,20 +72,31 @@ function TabIcon({
   const iconName = focused && activeName ? activeName : name;
 
   const iconContainerStyle = useAnimatedStyle(() => {
-    const scale = interpolate(activeProgress.value + pressProgress.value, [0, 1.2], [1, 1.1]);
-    const translateY = interpolate(activeProgress.value, [0, 1], [0, -2]);
+    const scale = interpolate(activeProgress.value + pressProgress.value, [0, 1.25], [1, 1.12]);
+    const translateY = interpolate(activeProgress.value, [0, 1], [0, -3]);
 
     return {
       transform: [{ translateY }, { scale }],
     };
   });
 
+  const iconGlowStyle = useAnimatedStyle(() => {
+    const glowStrength = interpolate(activeProgress.value, [0, 1], [0, 1]);
+    const glowScale = interpolate(activeProgress.value + pressProgress.value, [0, 1.3], [0.86, 1.1]);
+
+    return {
+      opacity: glowStrength,
+      transform: [{ scale: glowScale }],
+    };
+  });
+
   const labelStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(activeProgress.value, [0, 1], ['#A6ADCE', '#FFFFFF']),
+    color: interpolateColor(activeProgress.value, [0, 1], ['rgba(166,173,206,0.70)', '#FFFFFF']),
+    opacity: interpolate(activeProgress.value, [0, 1], [0.86, 1]),
   }));
 
   const iconProps = useAnimatedProps(() => ({
-    color: interpolateColor(activeProgress.value, [0, 1], ['#A6ADCE', '#6C63FF']),
+    color: interpolateColor(activeProgress.value, [0, 1], ['rgba(166,173,206,0.72)', '#7A72FF']),
   }));
 
   return (
@@ -97,12 +108,15 @@ function TabIcon({
         pressProgress.value = withTiming(0.14, { duration: 120, easing: Easing.out(Easing.quad) });
       }}
       onPressOut={() => {
-        pressProgress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
+        pressProgress.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.quad) });
       }}
       style={styles.tab}
     >
       <Animated.View style={iconContainerStyle}>
-        <AnimatedIonicon name={iconName} size={24} animatedProps={iconProps} />
+        <View style={styles.iconShell}>
+          <Animated.View style={[styles.iconGlow, iconGlowStyle]} />
+          <AnimatedIonicon name={iconName} size={24} animatedProps={iconProps} />
+        </View>
       </Animated.View>
       <Animated.Text style={[styles.label, labelStyle]} numberOfLines={1}>
         {label}
@@ -112,13 +126,40 @@ function TabIcon({
 }
 
 function KachanTabBar({ state, navigation }: BottomTabBarProps) {
+  const [rowWidth, setRowWidth] = React.useState(0);
+  const activeIndex = useSharedValue(state.index);
+
+  React.useEffect(() => {
+    activeIndex.value = withTiming(state.index, {
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [state.index, activeIndex]);
+
+  const onRowLayout = React.useCallback((event: LayoutChangeEvent) => {
+    setRowWidth(event.nativeEvent.layout.width);
+  }, []);
+
+  const activeGlowStyle = useAnimatedStyle(() => {
+    const slotWidth = rowWidth > 0 ? rowWidth / TABS.length : 0;
+    return {
+      width: slotWidth,
+      transform: [{ translateX: slotWidth * activeIndex.value }],
+    };
+  }, [rowWidth]);
+
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
       <View style={styles.glassBar}>
-        <BlurView intensity={38} tint="dark" style={StyleSheet.absoluteFill} />
+        <BlurView intensity={72} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.tintLayer} />
+        <View style={styles.edgeHighlight} />
 
-        <View style={styles.row}>
+        <View style={styles.row} onLayout={onRowLayout}>
+          <Animated.View pointerEvents="none" style={[styles.activeTrack, activeGlowStyle]}>
+            <View style={styles.activeTrackInner} />
+          </Animated.View>
+
           {state.routes.map((route, index: number) => {
             const isFocused = state.index === index;
             const tab = TABS.find((t) => t.key === (route.name as RouteName));
@@ -173,7 +214,7 @@ export default function KachanTabs() {
   );
 }
 
-const H = 74;
+const H = 78;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -181,26 +222,34 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 12,
-    paddingBottom: Platform.select({ ios: 18, android: 12 }),
+    paddingHorizontal: 14,
+    paddingBottom: Platform.select({ ios: 22, android: 14 }),
     paddingTop: 10,
   },
   glassBar: {
     height: H,
-    borderRadius: 24,
+    borderRadius: 32,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    shadowColor: '#000',
-    shadowOpacity: 0.26,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 16,
-    backgroundColor: 'rgba(21,24,47,0.35)',
+    borderColor: 'rgba(147,154,255,0.22)',
+    shadowColor: '#0A0C20',
+    shadowOpacity: 0.32,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 18,
+    backgroundColor: 'rgba(18,22,43,0.36)',
   },
   tintLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(20,24,44,0.40)',
+    backgroundColor: 'rgba(22,27,52,0.48)',
+  },
+  edgeHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.24)',
   },
   row: {
     flex: 1,
@@ -208,11 +257,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 6,
   },
+  activeTrack: {
+    position: 'absolute',
+    top: 8,
+    bottom: 8,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeTrackInner: {
+    width: '78%',
+    height: '100%',
+    borderRadius: 24,
+    backgroundColor: 'rgba(108,99,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(133,124,255,0.28)',
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.36,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     height: H,
+  },
+  iconShell: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconGlow: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(108,99,255,0.26)',
+    shadowColor: '#6C63FF',
+    shadowOpacity: 0.55,
+    shadowRadius: 13,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 4,
   },
   label: {
     marginTop: 3,
