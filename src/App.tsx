@@ -18,16 +18,22 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function App() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
+
   return (
     <NavigationContainer theme={theme}>
-      <Stack.Navigator initialRouteName="TelaLogin" screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName="TelaLogin"
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationDuration: 240,
+          animationTypeForReplace: 'push',
+          gestureEnabled: true,
+        }}
+      >
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
         <Stack.Screen name="RootTabs" component={KachanTabs} />
-        <Stack.Screen
-          name="StoryViewer"
-          component={StoryViewer}
-          options={{ presentation: 'fullScreenModal', animation: 'fade_from_bottom' }}
-        />
+        <Stack.Screen name="StoryViewer" component={StoryViewer} />
         <Stack.Screen name="ComentariosPostagem" component={ComentariosPostagem} />
         <Stack.Screen name="CriarStories" component={CriarStories} />
         <Stack.Screen name="CriarPostagem" component={CriarPostagem} />
