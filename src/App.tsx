@@ -23,7 +23,11 @@ export default function App() {
       <Stack.Navigator initialRouteName="TelaLogin" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="TelaLogin" component={TelaLogin} />
         <Stack.Screen name="RootTabs" component={KachanTabs} />
-        <Stack.Screen name="StoryViewer" component={StoryViewer} />
+        <Stack.Screen
+          name="StoryViewer"
+          component={StoryViewer}
+          options={{ presentation: 'fullScreenModal', animation: 'fade_from_bottom' }}
+        />
         <Stack.Screen name="ComentariosPostagem" component={ComentariosPostagem} />
         <Stack.Screen name="CriarStories" component={CriarStories} />
         <Stack.Screen name="CriarPostagem" component={CriarPostagem} />

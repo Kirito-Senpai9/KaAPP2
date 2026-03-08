@@ -9,11 +9,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ResizeMode, Video } from 'expo-av';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '@/navigation/types';
+import type { RootStackParamList, StoryUser } from '@/navigation/types';
 
 const { width } = Dimensions.get('window');
 
-type Story = { id: string; name: string; cover: string; avatar: string; };
 type Post  = {
   id: string;
   type: 'image' | 'video-vertical' | 'video-horizontal';
@@ -32,11 +31,81 @@ type Post  = {
 };
 
 /* --- MOCK --- */
-const STORIES: Story[] = [
-  { id: '1', name: 'Você', cover: 'https://images.unsplash.com/photo-1520975922284-9d08b6d8f6a0?w=1200&q=80&auto=format&fit=crop', avatar: 'https://i.pravatar.cc/150?img=1' },
-  { id: '2', name: 'Lua',  cover: 'https://images.unsplash.com/photo-1520975594081-3a43b00abd98?w=1200&q=80&auto=format&fit=crop', avatar: 'https://i.pravatar.cc/150?img=2' },
-  { id: '3', name: 'Kai',  cover: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1200&q=80&auto=format&fit=crop', avatar: 'https://i.pravatar.cc/150?img=3' },
-  { id: '4', name: 'Mina', cover: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1200&q=80&auto=format&fit=crop', avatar: 'https://i.pravatar.cc/150?img=4' },
+const STORIES: StoryUser[] = [
+  {
+    id: '1',
+    name: 'Você',
+    avatar: 'https://i.pravatar.cc/150?img=1',
+    stories: [
+      {
+        id: '1-1',
+        type: 'image',
+        uri: 'https://images.unsplash.com/photo-1520975922284-9d08b6d8f6a0?w=1400&q=80&auto=format&fit=crop',
+        postedAt: 'agora',
+        overlays: [{ id: 'ov-1', type: 'text', content: 'Partiu ranked ✨' }],
+      },
+      {
+        id: '1-2',
+        type: 'video',
+        uri: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+        postedAt: 'agora',
+      },
+    ],
+  },
+  {
+    id: '2',
+    name: 'Lua',
+    avatar: 'https://i.pravatar.cc/150?img=2',
+    stories: [
+      {
+        id: '2-1',
+        type: 'image',
+        uri: 'https://images.unsplash.com/photo-1520975594081-3a43b00abd98?w=1400&q=80&auto=format&fit=crop',
+        postedAt: 'há 2h',
+        overlays: [{ id: 'ov-2', type: 'emoji', content: '🔥' }],
+      },
+      {
+        id: '2-2',
+        type: 'image',
+        uri: 'https://images.unsplash.com/photo-1560253023-3ec5d502959f?w=1400&q=80&auto=format&fit=crop',
+        postedAt: 'há 2h',
+        overlays: [{ id: 'ov-3', type: 'text', content: 'Time fechado para o torneio' }],
+      },
+    ],
+  },
+  {
+    id: '3',
+    name: 'Kai',
+    avatar: 'https://i.pravatar.cc/150?img=3',
+    stories: [
+      {
+        id: '3-1',
+        type: 'video',
+        uri: 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        postedAt: 'há 45 min',
+      },
+      {
+        id: '3-2',
+        type: 'image',
+        uri: 'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1400&q=80&auto=format&fit=crop',
+        postedAt: 'há 42 min',
+        overlays: [{ id: 'ov-4', type: 'music', content: 'Lo-fi KaAPP Mix' }],
+      },
+    ],
+  },
+  {
+    id: '4',
+    name: 'Mina',
+    avatar: 'https://i.pravatar.cc/150?img=4',
+    stories: [
+      {
+        id: '4-1',
+        type: 'image',
+        uri: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1400&q=80&auto=format&fit=crop',
+        postedAt: 'há 1h',
+      },
+    ],
+  },
 ];
 
 const POSTS: Post[] = [
@@ -124,25 +193,39 @@ const formatCount = (value: number) => {
 };
 
 /* --- Stories (rola junto no header) --- */
-const StoryCard = memo(function StoryCard({ item }: { item: Story }) {
+const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 0.95, duration: 90, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1.03, duration: 130, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: 90, useNativeDriver: true }),
+    ]).start();
+    onPress();
+  };
+
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      style={styles.storyItem}
-      accessibilityRole="button"
-      accessibilityLabel={`Story de ${item.name}`}
-    >
-      <ImageBackground
-        source={{ uri: item.cover }}
-        style={styles.storyBg}
-        imageStyle={styles.storyBgImage}
-        resizeMode="cover"
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={styles.storyItem}
+        accessibilityRole="button"
+        accessibilityLabel={`Story de ${item.name}`}
+        onPress={handlePress}
       >
-        <View style={styles.storyAvatarWrap}>
-          <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
-        </View>
-      </ImageBackground>
-    </TouchableOpacity>
+        <ImageBackground
+          source={{ uri: item.stories[0]?.uri ?? item.avatar }}
+          style={styles.storyBg}
+          imageStyle={styles.storyBgImage}
+          resizeMode="cover"
+        >
+          <View style={styles.storyAvatarWrap}>
+            <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
+          </View>
+        </ImageBackground>
+      </TouchableOpacity>
+    </Animated.View>
   );
 });
 
@@ -401,6 +484,15 @@ export default function Home() {
     });
   }, [navigation]);
 
+
+  const openStoryViewer = useCallback((userIndex: number) => {
+    navigation.navigate('StoryViewer', {
+      users: STORIES,
+      initialUserIndex: userIndex,
+      initialStoryIndex: 0,
+    });
+  }, [navigation]);
+
   const renderPost = useCallback(
     ({ item }: { item: Post }) => (
       <PostCard item={item} isVisible={visiblePostIds.includes(item.id)} onOpenComments={openComments} />
@@ -414,7 +506,7 @@ export default function Home() {
         horizontal
         data={STORIES}
         keyExtractor={(s) => s.id}
-        renderItem={({ item }) => <StoryCard item={item} />}
+        renderItem={({ item, index }) => <StoryCard item={item} onPress={() => openStoryViewer(index)} />}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 12 }}
       />
