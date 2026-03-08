@@ -37,12 +37,6 @@ type CommentItem = {
   };
 };
 
-type FlattenedComment = {
-  comment: CommentItem;
-  depth: number;
-  parentId?: string;
-};
-
 const CURRENT_USER = {
   name: 'Você',
   avatar: 'https://i.pravatar.cc/150?img=11',
@@ -138,6 +132,15 @@ const INITIAL_COMMENTS: CommentItem[] = [
         likes: 28,
         replies: [],
       },
+      {
+        id: 'c1-r2',
+        user: 'Mia',
+        avatar: 'https://i.pravatar.cc/150?img=19',
+        content: 'Aqui também melhorou muito depois do update!',
+        createdAt: Date.now() - 1000 * 60 * 29,
+        likes: 9,
+        replies: [],
+      },
     ],
   },
   {
@@ -164,13 +167,6 @@ const sortChronologically = (items: CommentItem[]): CommentItem[] =>
   [...items]
     .sort((a, b) => a.createdAt - b.createdAt)
     .map((item) => ({ ...item, replies: sortChronologically(item.replies) }));
-
-const flattenComments = (items: CommentItem[], depth = 0, parentId?: string): FlattenedComment[] => {
-  return items.flatMap((item) => [
-    { comment: item, depth, parentId },
-    ...flattenComments(item.replies, depth + 1, item.id),
-  ]);
-};
 
 const addReplyToThread = (items: CommentItem[], parentId: string, reply: CommentItem): CommentItem[] => {
   return items.map((item) => {
@@ -200,6 +196,10 @@ const toggleLikeById = (items: CommentItem[], id: string): CommentItem[] => {
   });
 };
 
+const countRepliesDeep = (items: CommentItem[]): number => {
+  return items.reduce((total, item) => total + 1 + countRepliesDeep(item.replies), 0);
+};
+
 const timeAgo = (createdAt: number) => {
   const minutes = Math.max(1, Math.floor((Date.now() - createdAt) / 60000));
   if (minutes < 60) return `${minutes} min`;
@@ -209,60 +209,73 @@ const timeAgo = (createdAt: number) => {
 };
 
 function CommentRow({
-  entry,
+  comment,
+  depth,
+  showConnector,
   onReply,
   onLike,
 }: {
-  entry: FlattenedComment;
+  comment: CommentItem;
+  depth: number;
+  showConnector?: boolean;
   onReply: (comment: CommentItem) => void;
   onLike: (id: string) => void;
 }) {
   const pulse = useRef(new Animated.Value(1)).current;
+  const isReply = depth > 0;
 
   const animateLike = () => {
     Animated.sequence([
       Animated.spring(pulse, { toValue: 1.22, useNativeDriver: true }),
       Animated.spring(pulse, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
-    onLike(entry.comment.id);
+    onLike(comment.id);
   };
 
   return (
-    <View style={[styles.commentRow, { marginLeft: entry.depth * 22 }]}> 
-      {entry.depth > 0 && <View style={styles.threadLine} />}
+    <View
+      style={[
+        styles.commentRow,
+        isReply && styles.replyRow,
+        { marginLeft: depth * 18 },
+      ]}
+    >
+      {!!showConnector && <View style={styles.firstReplyConnector} />}
 
-      <Image source={{ uri: entry.comment.avatar }} style={styles.commentAvatar} />
+      <Image source={{ uri: comment.avatar }} style={[styles.commentAvatar, isReply && styles.replyAvatar]} />
 
-      <View style={styles.commentBubble}>
+      <View style={styles.commentContentWrap}>
         <View style={styles.commentMetaRow}>
-          <Text style={styles.commentUser}>{entry.comment.user}</Text>
-          <Text style={styles.commentTime}>{timeAgo(entry.comment.createdAt)}</Text>
+          <Text style={[styles.commentUser, isReply && styles.replyUser]}>{comment.user}</Text>
+          <Text style={[styles.commentTime, isReply && styles.replyMeta]}>{timeAgo(comment.createdAt)}</Text>
         </View>
 
-        {!!entry.comment.sticker ? (
+        {!!comment.sticker ? (
           <View style={styles.stickerCommentWrap}>
-            <Image source={{ uri: entry.comment.sticker.uri }} style={styles.stickerImage} resizeMode="cover" />
-            <Text style={styles.stickerCaption}>{entry.comment.sticker.label}</Text>
+            <Image source={{ uri: comment.sticker.uri }} style={styles.stickerImage} resizeMode="cover" />
+            <Text style={[styles.stickerCaption, isReply && styles.replyMeta]}>{comment.sticker.label}</Text>
           </View>
         ) : (
-          <Text style={styles.commentText}>{entry.comment.content}</Text>
+          <Text style={[styles.commentText, isReply && styles.replyText]}>{comment.content}</Text>
         )}
 
         <View style={styles.commentActions}>
-          <Animated.View style={{ transform: [{ scale: pulse }] }}>
-            <TouchableOpacity style={styles.actionGhostBtn} onPress={animateLike}>
-              <Ionicons
-                name={entry.comment.liked ? 'heart' : 'heart-outline'}
-                size={16}
-                color={entry.comment.liked ? '#FF658D' : '#AEB4D6'}
-              />
-              <Text style={styles.actionGhostText}>{entry.comment.likes}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-
-          <Pressable onPress={() => onReply(entry.comment)}>
-            <Text style={styles.actionGhostText}>Responder</Text>
+          <Pressable onPress={() => onReply(comment)}>
+            <Text style={[styles.actionGhostText, isReply && styles.replyMeta]}>Responder</Text>
           </Pressable>
+
+          <View style={styles.likeColumn}>
+            <Animated.View style={{ transform: [{ scale: pulse }] }}>
+              <TouchableOpacity style={styles.likeBtnOnlyIcon} onPress={animateLike}>
+                <Ionicons
+                  name={comment.liked ? 'heart' : 'heart-outline'}
+                  size={16}
+                  color={comment.liked ? '#FF658D' : '#AEB4D6'}
+                />
+              </TouchableOpacity>
+            </Animated.View>
+            <Text style={[styles.likeCountText, isReply && styles.replyMeta]}>{comment.likes}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -276,8 +289,8 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
   const [showStickers, setShowStickers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<StickerCategoryId>('recentes');
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
-  const flattened = useMemo(() => flattenComments(comments), [comments]);
   const filteredStickers = useMemo(() => {
     if (selectedCategory === 'animados') {
       return STICKERS.filter((sticker) => sticker.animated);
@@ -324,13 +337,31 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
     setShowStickers((prev) => !prev);
   };
 
+  const renderReplies = (replies: CommentItem[], depth = 1, showConnectorOnFirst = false): React.ReactNode => {
+    return replies.map((reply, index) => (
+      <View key={reply.id}>
+        <CommentRow
+          comment={reply}
+          depth={depth}
+          showConnector={showConnectorOnFirst && index === 0}
+          onReply={(comment) => {
+            setReplyingTo(comment);
+            setShowStickers(false);
+          }}
+          onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+        />
+        {reply.replies.length > 0 ? renderReplies(reply.replies, depth + 1, false) : null}
+      </View>
+    ));
+  };
+
   const keyboardOffset = insets.top + 56;
 
   return (
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#121532', '#0E0E12']} start={[0, 0]} end={[1, 1]} style={StyleSheet.absoluteFill} />
 
-      <View style={[styles.header, { paddingTop: insets.top }]}> 
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={22} color="#E9EBFA" />
         </TouchableOpacity>
@@ -347,18 +378,44 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
         enabled
       >
         <FlatList
-          data={flattened}
-          keyExtractor={(item) => item.comment.id}
-          renderItem={({ item }) => (
-            <CommentRow
-              entry={item}
-              onReply={(comment) => {
-                setReplyingTo(comment);
-                setShowStickers(false);
-              }}
-              onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
-            />
-          )}
+          data={comments}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const totalReplies = countRepliesDeep(item.replies);
+            const isExpanded = !!expandedThreads[item.id];
+
+            return (
+              <View style={styles.rootCommentBlock}>
+                <CommentRow
+                  comment={item}
+                  depth={0}
+                  onReply={(comment) => {
+                    setReplyingTo(comment);
+                    setShowStickers(false);
+                  }}
+                  onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+                />
+
+                {totalReplies > 0 && (
+                  <Pressable
+                    style={styles.toggleRepliesBtn}
+                    onPress={() =>
+                      setExpandedThreads((prev) => ({
+                        ...prev,
+                        [item.id]: !prev[item.id],
+                      }))
+                    }
+                  >
+                    <Text style={styles.toggleRepliesText}>
+                      {isExpanded ? 'Ocultar respostas' : `Ver mais ${totalReplies} respostas`}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {isExpanded && item.replies.length > 0 ? renderReplies(item.replies, 1, true) : null}
+              </View>
+            );
+          }}
           style={styles.commentList}
           contentContainerStyle={{
             padding: 14,
@@ -472,29 +529,37 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   headerSubtitle: { color: '#98A1CE', fontSize: 12, marginTop: 2 },
   commentList: { flex: 1 },
-  commentRow: { flexDirection: 'row', marginBottom: 16 },
-  threadLine: {
+  rootCommentBlock: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+  },
+  commentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  replyRow: {
+    marginTop: 8,
+  },
+  firstReplyConnector: {
     position: 'absolute',
-    left: -11,
-    top: 8,
-    bottom: -8,
+    left: -9,
+    top: -28,
     width: 2,
-    backgroundColor: 'rgba(141,151,204,0.45)',
+    height: 44,
+    backgroundColor: 'rgba(141,151,204,0.52)',
     borderRadius: 4,
   },
   commentAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, marginTop: 2 },
-  commentBubble: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
-    padding: 10,
-  },
+  replyAvatar: { width: 32, height: 32, borderRadius: 16 },
+  commentContentWrap: { flex: 1 },
   commentMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  commentUser: { color: '#FFFFFF', fontWeight: '700' },
+  commentUser: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  replyUser: { fontSize: 13 },
   commentTime: { color: '#94A0CD', fontSize: 11 },
   commentText: { color: '#E6E9FA', fontSize: 15, lineHeight: 21, marginTop: 4 },
+  replyText: { fontSize: 14, lineHeight: 19 },
+  replyMeta: { fontSize: 11 },
   stickerCommentWrap: {
     marginTop: 8,
     gap: 6,
@@ -507,9 +572,36 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
   stickerCaption: { color: '#C8D0F5', fontSize: 12, fontWeight: '600' },
-  commentActions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 },
-  actionGhostBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  commentActions: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  likeColumn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 26,
+    gap: 2,
+  },
+  likeBtnOnlyIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+    height: 20,
+  },
+  likeCountText: { color: '#AEB4D6', fontSize: 11, fontWeight: '600' },
   actionGhostText: { color: '#AEB4D6', fontSize: 12, fontWeight: '600' },
+  toggleRepliesBtn: {
+    marginLeft: 46,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  toggleRepliesText: {
+    color: '#96A2D9',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   composerWrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
