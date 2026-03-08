@@ -38,9 +38,14 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [emojiFx, setEmojiFx] = useState<string | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [emojiInsertFx, setEmojiInsertFx] = useState<string | null>(null);
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
+  const userSlideX = useRef(new Animated.Value(0)).current;
+  const userOpacity = useRef(new Animated.Value(1)).current;
+  const emojiInsertAnim = useRef(new Animated.Value(0)).current;
+  const previousUserIndexRef = useRef(initialUserIndex);
   const storyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyStartAtRef = useRef<number>(0);
   const storyRemainingRef = useRef<number>(IMAGE_DURATION_MS);
@@ -103,6 +108,26 @@ export default function StoryViewer({ route, navigation }: Props) {
       setCurrentStoryIndex(0);
     }
   }, [currentUserIndex]);
+
+  const runUserTransition = useCallback((direction: 'next' | 'previous') => {
+    userSlideX.stopAnimation();
+    userOpacity.stopAnimation();
+    userSlideX.setValue(direction === 'next' ? 28 : -28);
+    userOpacity.setValue(0.7);
+
+    Animated.parallel([
+      Animated.timing(userSlideX, {
+        toValue: 0,
+        duration: 280,
+        useNativeDriver: true,
+      }),
+      Animated.timing(userOpacity, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [userOpacity, userSlideX]);
 
   const startImageProgress = useCallback((durationMs: number) => {
     clearStoryTimer();
@@ -185,6 +210,14 @@ export default function StoryViewer({ route, navigation }: Props) {
   useEffect(() => () => clearStoryTimer(), [clearStoryTimer]);
 
   useEffect(() => {
+    if (currentUserIndex === previousUserIndexRef.current) return;
+
+    const direction = currentUserIndex > previousUserIndexRef.current ? 'next' : 'previous';
+    runUserTransition(direction);
+    previousUserIndexRef.current = currentUserIndex;
+  }, [currentUserIndex, runUserTransition]);
+
+  useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
@@ -224,18 +257,51 @@ export default function StoryViewer({ route, navigation }: Props) {
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 25,
     onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx < -70) {
+      if (gesture.dx < -130) {
         goNextUser();
-      } else if (gesture.dx > 70) {
+      } else if (gesture.dx > 130) {
         goPreviousUser();
+      } else if (gesture.dx < -45) {
+        goNext();
+      } else if (gesture.dx > 45) {
+        goPrevious();
       }
     },
-  }), [goNextUser, goPreviousUser]);
+  }), [goNext, goNextUser, goPrevious, goPreviousUser]);
 
   const showReactionFx = useCallback((emoji: string) => {
+    setInput((value) => `${value}${emoji}`);
     setEmojiFx(emoji);
-    setTimeout(() => setEmojiFx(null), 700);
-  }, []);
+    setEmojiInsertFx(emoji);
+    emojiInsertAnim.stopAnimation();
+    emojiInsertAnim.setValue(0);
+
+    Animated.sequence([
+      Animated.timing(emojiInsertAnim, {
+        toValue: 1,
+        duration: 210,
+        useNativeDriver: true,
+      }),
+      Animated.delay(120),
+      Animated.timing(emojiInsertAnim, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setEmojiInsertFx(null);
+    });
+
+    setTimeout(() => setEmojiFx(null), 520);
+  }, [emojiInsertAnim]);
+
+  const handleSend = useCallback(() => {
+    const payload = input.trim();
+    if (!payload) return;
+    setInput('');
+    setIsInputFocused(false);
+    Keyboard.dismiss();
+  }, [input]);
 
   const handleHoldStart = () => {
     setIsPaused(true);
@@ -255,7 +321,13 @@ export default function StoryViewer({ route, navigation }: Props) {
     <SafeAreaView style={styles.root} edges={['top', 'bottom', 'left', 'right']}>
       <LinearGradient colors={['#07080f', '#11142a', '#07080f']} style={StyleSheet.absoluteFill} />
 
-      <Animated.View style={[styles.contentLayer, { opacity: contentFade }]} {...panResponder.panHandlers}>
+      <Animated.View
+        style={[
+          styles.contentLayer,
+          { opacity: Animated.multiply(contentFade, userOpacity), transform: [{ translateX: userSlideX }] },
+        ]}
+        {...panResponder.panHandlers}
+      >
         {currentStory.type === 'video' ? (
           <Video
             source={{ uri: currentStory.uri }}
@@ -318,6 +390,15 @@ export default function StoryViewer({ route, navigation }: Props) {
           <Pressable style={styles.tapSide} onPress={goNext} onPressIn={handleHoldStart} onPressOut={handleHoldEnd} />
         </View>
 
+        <View pointerEvents="box-none" style={styles.storyArrowsWrap}>
+          <TouchableOpacity onPress={goPrevious} style={[styles.storyArrowBtn, styles.storyArrowLeft]}>
+            <Ionicons name="chevron-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={goNext} style={[styles.storyArrowBtn, styles.storyArrowRight]}>
+            <Ionicons name="chevron-forward" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
         <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
           {!!currentStory.overlays?.length && (
             <View style={styles.overlayBadgeWrap}>
@@ -330,6 +411,30 @@ export default function StoryViewer({ route, navigation }: Props) {
           )}
 
           <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
+            {emojiInsertFx && (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.emojiInsertFx,
+                  {
+                    opacity: emojiInsertAnim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] }),
+                    transform: [
+                      {
+                        translateX: emojiInsertAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [54, 0],
+                        }),
+                      },
+                      {
+                        scale: emojiInsertAnim.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.7, 1.1, 1] }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Text style={styles.emojiInsertText}>{emojiInsertFx}</Text>
+              </Animated.View>
+            )}
             <TextInput
               value={input}
               onChangeText={setInput}
@@ -339,21 +444,22 @@ export default function StoryViewer({ route, navigation }: Props) {
               placeholderTextColor="#AEB2C8"
               style={styles.input}
             />
-            <View style={styles.reactionRow}>
-              {isInputFocused && (
-                <View style={styles.suggestionWrap}>
-                  {REACTIONS.map((emoji) => (
-                    <TouchableOpacity key={emoji} onPress={() => showReactionFx(emoji)} style={styles.reactionBtn}>
-                      <Text style={styles.reactionText}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-              <TouchableOpacity style={styles.shareBtn}>
-                <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.shareBtn} onPress={handleSend}>
+              <Ionicons name="paper-plane" size={18} color="#fff" />
+            </TouchableOpacity>
           </BlurView>
+
+          {isInputFocused && (
+            <View style={styles.reactionRow}>
+              <View style={styles.suggestionWrap}>
+                {REACTIONS.map((emoji) => (
+                  <TouchableOpacity key={emoji} onPress={() => showReactionFx(emoji)} style={styles.reactionBtn}>
+                    <Text style={styles.reactionText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
         {emojiFx && (
@@ -449,6 +555,29 @@ const styles = StyleSheet.create({
     bottom: 160,
   },
   tapSide: { flex: 1 },
+  storyArrowsWrap: {
+    ...StyleSheet.absoluteFillObject,
+    top: 150,
+    bottom: 200,
+    justifyContent: 'center',
+  },
+  storyArrowBtn: {
+    position: 'absolute',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(7, 8, 15, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  storyArrowLeft: {
+    left: 12,
+  },
+  storyArrowRight: {
+    right: 12,
+  },
   bottomArea: {
     position: 'absolute',
     left: 0,
@@ -474,30 +603,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   interactionBar: {
-    borderRadius: 22,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    borderRadius: 30,
+    minHeight: 56,
+    paddingLeft: 16,
+    paddingRight: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
     backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   input: {
+    flex: 1,
     color: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-    backgroundColor: 'rgba(255,255,255,0.14)',
     minHeight: 44,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 10,
   },
   reactionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 36,
+    minHeight: 34,
+    marginTop: 8,
   },
   suggestionWrap: {
     flexDirection: 'row',
@@ -514,7 +643,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   shareBtn: {
-    marginLeft: 'auto',
+    marginLeft: 8,
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -534,6 +663,14 @@ const styles = StyleSheet.create({
   },
   emojiFxText: {
     fontSize: 30,
+  },
+  emojiInsertFx: {
+    position: 'absolute',
+    right: 52,
+    alignSelf: 'center',
+  },
+  emojiInsertText: {
+    fontSize: 20,
   },
   videoMeta: {
     position: 'absolute',
