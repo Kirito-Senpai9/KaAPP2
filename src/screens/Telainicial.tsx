@@ -1,7 +1,7 @@
-import React, { memo, useCallback, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
-  Animated, Dimensions, ImageBackground, Easing
+  Animated, Dimensions, ImageBackground, Easing, Modal, Pressable, BackHandler
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -28,6 +28,13 @@ type Post  = {
   comments: number;
   reposts: number;
   shares: number;
+};
+
+type MenuAnchor = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 /* --- MOCK --- */
@@ -234,9 +241,10 @@ type PostCardProps = {
   item: Post;
   isVisible: boolean;
   onOpenComments: (post: Post) => void;
+  onOpenContextMenu: (post: Post, anchor: MenuAnchor) => void;
 };
 
-const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: PostCardProps) {
+const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpenContextMenu }: PostCardProps) {
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -252,6 +260,7 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
   const shareX       = useRef(new Animated.Value(0)).current;
   const repostScale  = useRef(new Animated.Value(1)).current;
   const saveRotateY  = useRef(new Animated.Value(0)).current;
+  const menuButtonRef = useRef<View | null>(null);
 
   const handleLike = () => {
     setLiked(v => !v);
@@ -412,6 +421,12 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
     return null;
   };
 
+  const handleOpenContextMenu = () => {
+    menuButtonRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+      onOpenContextMenu(item, { x, y, width: measuredWidth, height: measuredHeight });
+    });
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -420,7 +435,17 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments }: Pos
           <Text style={styles.cardUser}>{item.user}</Text>
           <Text style={styles.cardSub}>{item.timeLabel} • público</Text>
         </View>
-        <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
+        <TouchableOpacity
+          ref={menuButtonRef}
+          style={styles.moreButton}
+          onPress={handleOpenContextMenu}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir menu da postagem de ${item.user}`}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
+        </TouchableOpacity>
       </View>
 
       {renderMedia()}
@@ -509,6 +534,21 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+  const [menuData, setMenuData] = useState<{ post: Post; anchor: MenuAnchor } | null>(null);
+  const menuOpacity = useRef(new Animated.Value(0)).current;
+  const menuScale = useRef(new Animated.Value(0.95)).current;
+
+  const isMenuVisible = !!menuData;
+
+  const closeContextMenu = useCallback((onEnd?: () => void) => {
+    Animated.parallel([
+      Animated.timing(menuOpacity, { toValue: 0, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(menuScale, { toValue: 0.95, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start(() => {
+      setMenuData(null);
+      onEnd?.();
+    });
+  }, [menuOpacity, menuScale]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
     const ids = viewableItems.map((entry) => entry.item.id);
@@ -529,6 +569,63 @@ export default function Home() {
     });
   }, [navigation]);
 
+  const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
+    menuOpacity.setValue(0);
+    menuScale.setValue(0.95);
+    setMenuData({ post, anchor });
+  }, [menuOpacity, menuScale]);
+
+  useEffect(() => {
+    if (!isMenuVisible) return;
+
+    Animated.parallel([
+      Animated.timing(menuOpacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(menuScale, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+  }, [isMenuVisible, menuOpacity, menuScale]);
+
+  useEffect(() => {
+    if (!isMenuVisible) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeContextMenu();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [closeContextMenu, isMenuVisible]);
+
+  const menuPosition = useMemo(() => {
+    if (!menuData) return { top: 0, left: 0 };
+
+    const menuWidth = 232;
+    const menuHeight = 276;
+    const edgeOffset = 10;
+    const anchorGap = 8;
+    const windowHeight = Dimensions.get('window').height;
+
+    const unclampedLeft = menuData.anchor.x + menuData.anchor.width - menuWidth;
+    const left = Math.min(
+      Math.max(unclampedLeft, edgeOffset),
+      width - menuWidth - edgeOffset,
+    );
+
+    const belowTop = menuData.anchor.y + menuData.anchor.height + anchorGap;
+    const maxTop = windowHeight - insets.bottom - menuHeight - edgeOffset;
+    const top = belowTop > maxTop
+      ? Math.max(insets.top + edgeOffset, menuData.anchor.y - menuHeight - anchorGap)
+      : belowTop;
+
+    return { top, left };
+  }, [insets.bottom, insets.top, menuData]);
+
+  const handleMenuAction = useCallback((action: 'profile' | 'unfollow' | 'interested' | 'not_interested' | 'report') => {
+    if (menuData) {
+      console.log(`[ContextMenu] ${action} em ${menuData.post.user}`);
+    }
+    closeContextMenu();
+  }, [closeContextMenu, menuData]);
+
 
   const openStoryViewer = useCallback((userIndex: number) => {
     navigation.navigate('StoryViewer', {
@@ -540,9 +637,14 @@ export default function Home() {
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => (
-      <PostCard item={item} isVisible={visiblePostIds.includes(item.id)} onOpenComments={openComments} />
+      <PostCard
+        item={item}
+        isVisible={visiblePostIds.includes(item.id)}
+        onOpenComments={openComments}
+        onOpenContextMenu={openContextMenu}
+      />
     ),
-    [openComments, visiblePostIds]
+    [openComments, openContextMenu, visiblePostIds]
   );
 
   const FeedHeader = () => (
@@ -583,6 +685,68 @@ export default function Home() {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
       />
+
+      <Modal transparent visible={isMenuVisible} animationType="none" onRequestClose={closeContextMenu}>
+        <View style={styles.menuOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => closeContextMenu()} />
+
+          <Animated.View
+            style={[
+              styles.contextMenu,
+              {
+                top: menuPosition.top,
+                left: menuPosition.left,
+                opacity: menuOpacity,
+                transform: [{ scale: menuScale }],
+              },
+            ]}
+          >
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+              onPress={() => handleMenuAction('profile')}
+            >
+              <Ionicons name="person-outline" size={18} color="#E4E7FB" />
+              <Text style={styles.menuText}>Perfil</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+              onPress={() => handleMenuAction('unfollow')}
+            >
+              <Ionicons name="person-remove-outline" size={18} color="#E4E7FB" />
+              <Text style={styles.menuText}>Deixar de seguir</Text>
+            </Pressable>
+
+            <View style={styles.menuDivider} />
+
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+              onPress={() => handleMenuAction('interested')}
+            >
+              <Ionicons name="star-outline" size={18} color="#E4E7FB" />
+              <Text style={styles.menuText}>Tenho interesse</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+              onPress={() => handleMenuAction('not_interested')}
+            >
+              <Ionicons name="ban-outline" size={18} color="#E4E7FB" />
+              <Text style={styles.menuText}>Não tenho interesse</Text>
+            </Pressable>
+
+            <View style={styles.menuDivider} />
+
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, styles.reportMenuItem, pressed && styles.reportMenuItemPressed]}
+              onPress={() => handleMenuAction('report')}
+            >
+              <Ionicons name="flag-outline" size={18} color="#FF6C7A" />
+              <Text style={styles.reportMenuText}>Denunciar</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -617,6 +781,13 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 10, paddingTop: 6 },
+  moreButton: {
+    minWidth: 28,
+    minHeight: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cardAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
   cardUser: { color: '#fff', fontWeight: '700' },
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
@@ -680,4 +851,55 @@ const styles = StyleSheet.create({
 
   caption: { color: '#E6E8F5', paddingHorizontal: 14, marginTop: 4 },
   tags: { color: '#98A0CA', paddingHorizontal: 14, marginTop: 3, fontWeight: '600' },
+
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(6, 7, 14, 0.18)',
+  },
+  contextMenu: {
+    position: 'absolute',
+    width: 232,
+    borderRadius: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(18, 22, 42, 0.95)',
+    shadowColor: '#03050F',
+    shadowOpacity: 0.34,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 44,
+    paddingHorizontal: 14,
+  },
+  menuItemPressed: {
+    backgroundColor: 'rgba(137, 153, 236, 0.14)',
+  },
+  menuText: {
+    color: '#E4E7FB',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(237, 239, 255, 0.16)',
+    marginVertical: 6,
+    marginHorizontal: 10,
+  },
+  reportMenuItem: {
+    marginTop: 2,
+  },
+  reportMenuItemPressed: {
+    backgroundColor: 'rgba(255, 108, 122, 0.14)',
+  },
+  reportMenuText: {
+    color: '#FF6C7A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });
