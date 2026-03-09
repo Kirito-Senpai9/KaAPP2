@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, StyleSheet, Platform, LayoutChangeEvent } from 'react-native';
+import { View, Pressable, StyleSheet, Platform } from 'react-native';
 import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -61,13 +61,22 @@ function TabIcon({
 }) {
   const activeProgress = useSharedValue(focused ? 1 : 0);
   const pressProgress = useSharedValue(0);
+  const tapPulse = useSharedValue(focused ? 1 : 0);
 
   React.useEffect(() => {
     activeProgress.value = withTiming(focused ? 1 : 0, {
-      duration: 280,
+      duration: 240,
       easing: Easing.out(Easing.cubic),
     });
-  }, [focused, activeProgress]);
+
+    if (focused) {
+      tapPulse.value = 0;
+      tapPulse.value = withTiming(1, {
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+      });
+    }
+  }, [focused, activeProgress, tapPulse]);
 
   const iconName = focused && activeName ? activeName : name;
 
@@ -81,8 +90,13 @@ function TabIcon({
   });
 
   const iconGlowStyle = useAnimatedStyle(() => {
-    const glowStrength = interpolate(activeProgress.value, [0, 1], [0, 0.62]);
-    const glowScale = interpolate(activeProgress.value + pressProgress.value, [0, 1.3], [0.9, 1.02]);
+    const baseOpacity = interpolate(activeProgress.value, [0, 1], [0, 0.26]);
+    const burstOpacity = interpolate(tapPulse.value, [0, 0.45, 1], [0, 0.24, 0]);
+    const glowStrength = baseOpacity + burstOpacity;
+
+    const baseScale = interpolate(activeProgress.value + pressProgress.value, [0, 1.25], [0.78, 1]);
+    const burstScale = interpolate(tapPulse.value, [0, 1], [0.62, 1.12]);
+    const glowScale = Math.max(baseScale, burstScale);
 
     return {
       opacity: glowStrength,
@@ -105,6 +119,8 @@ function TabIcon({
       accessibilityState={accessibilityState}
       onPress={onPress}
       onPressIn={() => {
+        tapPulse.value = 0;
+        tapPulse.value = withTiming(1, { duration: 240, easing: Easing.out(Easing.cubic) });
         pressProgress.value = withTiming(0.08, { duration: 120, easing: Easing.out(Easing.quad) });
       }}
       onPressOut={() => {
@@ -126,28 +142,6 @@ function TabIcon({
 }
 
 function KachanTabBar({ state, navigation }: BottomTabBarProps) {
-  const [rowWidth, setRowWidth] = React.useState(0);
-  const activeIndex = useSharedValue(state.index);
-
-  React.useEffect(() => {
-    activeIndex.value = withTiming(state.index, {
-      duration: 320,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [state.index, activeIndex]);
-
-  const onRowLayout = React.useCallback((event: LayoutChangeEvent) => {
-    setRowWidth(event.nativeEvent.layout.width);
-  }, []);
-
-  const activeGlowStyle = useAnimatedStyle(() => {
-    const slotWidth = rowWidth > 0 ? rowWidth / TABS.length : 0;
-    return {
-      width: slotWidth,
-      transform: [{ translateX: slotWidth * activeIndex.value }],
-    };
-  }, [rowWidth]);
-
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
       <View style={styles.glassBar}>
@@ -155,11 +149,7 @@ function KachanTabBar({ state, navigation }: BottomTabBarProps) {
         <View style={styles.tintLayer} />
         <View style={styles.edgeHighlight} />
 
-        <View style={styles.row} onLayout={onRowLayout}>
-          <Animated.View pointerEvents="none" style={[styles.activeTrack, activeGlowStyle]}>
-            <View style={styles.activeTrackInner} />
-          </Animated.View>
-
+        <View style={styles.row}>
           {state.routes.map((route, index: number) => {
             const isFocused = state.index === index;
             const tab = TABS.find((t) => t.key === (route.name as RouteName));
@@ -257,25 +247,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
   },
-  activeTrack: {
-    position: 'absolute',
-    top: 10,
-    bottom: 10,
-    left: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeTrackInner: {
-    width: '74%',
-    height: '100%',
-    borderRadius: 22,
-    backgroundColor: 'rgba(108,99,255,0.10)',
-    shadowColor: '#6C63FF',
-    shadowOpacity: 0.18,
-    shadowRadius: 9,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
   tab: {
     flex: 1,
     alignItems: 'center',
@@ -290,13 +261,13 @@ const styles = StyleSheet.create({
   },
   iconGlow: {
     position: 'absolute',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(122,114,255,0.20)',
-    shadowColor: '#6C63FF',
-    shadowOpacity: 0.24,
-    shadowRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(122,114,255,0.18)',
+    shadowColor: '#7A72FF',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
     elevation: 2,
   },
