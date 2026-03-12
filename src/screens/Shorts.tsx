@@ -11,6 +11,7 @@ const { width, height } = Dimensions.get('window');
 
 /** Altura estimada da sua bottom bar custom (KachanTabs). */
 const TAB_BAR_HEIGHT = 86;
+const DOUBLE_TAP_DELAY_MS = 280;
 
 /* =========================================
    Tipos e dados mock
@@ -109,6 +110,7 @@ const ShortCard = memo(function ShortCard({
 
   // coração “burst” no meio (duplo toque)
   const burst = useRef(new Animated.Value(0)).current;
+  const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // marquee do áudio
   const marquee = useRef(new Animated.Value(0)).current;
@@ -152,25 +154,41 @@ const ShortCard = memo(function ShortCard({
     ]).start();
   };
 
-  // tap vs duplo toque
-  const lastTap = useRef<number>(0);
-  const onVideoPress = () => {
-    const now = Date.now();
-    if (now - lastTap.current < 280) {
-      // duplo toque = curtir
-      if (!liked) setLiked(true);
-      onDoubleLike?.();
-      animateHeart(); // anima o ícone
-      Animated.sequence([
-        Animated.timing(burst, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(burst, { toValue: 0, duration: 240, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-      ]).start();
-    } else {
-      // toque simples = pausar/retomar
-      setUserPaused(p => !p);
+  const onConfirmedSingleTap = useCallback(() => {
+    setUserPaused((p) => !p);
+  }, []);
+
+  const onConfirmedDoubleTap = useCallback(() => {
+    if (!liked) setLiked(true);
+    onDoubleLike?.();
+    animateHeart();
+    Animated.sequence([
+      Animated.timing(burst, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(burst, { toValue: 0, duration: 240, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+    ]).start();
+  }, [burst, liked, onDoubleLike]);
+
+  const handleSingleOrDoubleTap = useCallback(() => {
+    if (singleTapTimeoutRef.current) {
+      clearTimeout(singleTapTimeoutRef.current);
+      singleTapTimeoutRef.current = null;
+      onConfirmedDoubleTap();
+      return;
     }
-    lastTap.current = now;
-  };
+
+    singleTapTimeoutRef.current = setTimeout(() => {
+      singleTapTimeoutRef.current = null;
+      onConfirmedSingleTap();
+    }, DOUBLE_TAP_DELAY_MS);
+  }, [onConfirmedDoubleTap, onConfirmedSingleTap]);
+
+  useEffect(() => (
+    () => {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+      }
+    }
+  ), []);
 
   // clicar no coração (ícone) — animação + toggle
   const onHeartPress = () => {
@@ -207,7 +225,7 @@ const ShortCard = memo(function ShortCard({
   return (
     <View style={styles.page}>
       {/* vídeo (tap pausa/retoma, duplo toque curte) */}
-      <Pressable style={styles.videoTouch} onPress={onVideoPress}>
+      <Pressable style={styles.videoTouch} onPress={handleSingleOrDoubleTap}>
         <Video
           ref={(r) => {
             videoRef.current = r;
