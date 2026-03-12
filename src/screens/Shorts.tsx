@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, FlatList, Image, Pressable,
-  TouchableOpacity, Animated, Easing, Platform,
+  TouchableOpacity, Animated, Easing, Platform, ViewToken, FlatListProps,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
@@ -125,11 +125,8 @@ const ShortCard = memo(function ShortCard({
 
   // status do player: atualiza progresso
   const onStatusUpdate = (status: AVPlaybackStatus) => {
-    // @ts-ignore – checagem simples
-    if (!status?.isLoaded) return;
-    // @ts-ignore
+    if (!status.isLoaded) return;
     const dur = status.durationMillis ?? 0;
-    // @ts-ignore
     const pos = status.positionMillis ?? 0;
     if (dur > 0) setProgress(Math.min(1, Math.max(0, pos / dur)));
   };
@@ -331,9 +328,17 @@ export default function Shorts() {
   const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
 
   // controlar qual vídeo está visível
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    const v = viewableItems.find((it: any) => it.isViewable);
-    if (v?.item?.id) setActiveId(v.item.id);
+  const isShortItem = (item: unknown): item is ShortItem => (
+    !!item
+    && typeof item === 'object'
+    && 'id' in item
+    && typeof item.id === 'string'
+  );
+
+  const onViewableItemsChanged = useRef<NonNullable<FlatListProps<ShortItem>['onViewableItemsChanged']>>(({ viewableItems }) => {
+    const viewableItem = viewableItems.find((token: ViewToken<ShortItem>) => token.isViewable);
+
+    if (isShortItem(viewableItem?.item)) setActiveId(viewableItem.item.id);
   }).current;
 
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 80 });
