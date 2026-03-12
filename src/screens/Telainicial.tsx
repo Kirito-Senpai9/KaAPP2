@@ -10,6 +10,7 @@ import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/navigation/types';
+import CommentsBottomSheet from '@/components/CommentsBottomSheet';
 
 const { width } = Dimensions.get('window');
 
@@ -557,17 +558,15 @@ export default function Home() {
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
 
+  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
+
   const openComments = useCallback((post: Post) => {
-    navigation.navigate('ComentariosPostagem', {
-      post: {
-        id: post.id,
-        user: post.user,
-        avatar: post.avatar,
-        text: post.text,
-        type: post.type,
-      },
-    });
-  }, [navigation]);
+    setCommentsPost(post);
+  }, []);
+
+  const closeComments = useCallback(() => {
+    setCommentsPost(null);
+  }, []);
 
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
     menuOpacity.setValue(0);
@@ -594,6 +593,17 @@ export default function Home() {
 
     return () => subscription.remove();
   }, [closeContextMenu, isMenuVisible]);
+
+  useEffect(() => {
+    if (!commentsPost) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeComments();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [closeComments, commentsPost]);
 
   const menuPosition = useMemo(() => {
     if (!menuData) return { top: 0, left: 0 };
@@ -686,7 +696,13 @@ export default function Home() {
         viewabilityConfig={viewabilityConfig}
       />
 
-      <Modal transparent visible={isMenuVisible} animationType="none" onRequestClose={closeContextMenu}>
+      <CommentsBottomSheet
+        visible={!!commentsPost}
+        post={commentsPost ? { id: commentsPost.id, user: commentsPost.user, avatar: commentsPost.avatar, text: commentsPost.text } : null}
+        onClose={closeComments}
+      />
+
+      <Modal transparent visible={isMenuVisible} animationType="none" onRequestClose={() => closeContextMenu()}>
         <View style={styles.menuOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => closeContextMenu()} />
 
