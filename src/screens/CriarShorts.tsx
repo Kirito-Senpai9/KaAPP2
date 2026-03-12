@@ -1,14 +1,16 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootStackScreenProps } from '@/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
+import { ResizeMode, Video } from 'expo-av';
 
 const { width } = Dimensions.get('window');
 
 export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarShorts'>) {
   const [video, setVideo] = useState<string | null>(null);
+  const [videoPreviewError, setVideoPreviewError] = useState(false);
   const [caption, setCaption] = useState('');
   const anim = useRef(new Animated.Value(1)).current;
 
@@ -20,7 +22,10 @@ export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarS
       videoMaxDuration: 60,
       quality: 1,
     });
-    if (!res.canceled && res.assets?.[0]?.uri) setVideo(res.assets[0].uri);
+    if (!res.canceled && res.assets?.[0]?.uri) {
+      setVideoPreviewError(false);
+      setVideo(res.assets[0].uri);
+    }
   };
 
   const onPublish = () => {
@@ -50,8 +55,28 @@ export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarS
           <Text style={styles.cardTitle}>Vídeo</Text>
           {video ? (
             <TouchableOpacity onPress={pickVideo} activeOpacity={0.9} style={styles.mediaPreview}>
-              <Image source={{ uri: video }} style={styles.previewImg} />
-              <View style={styles.badge}><Ionicons name="videocam" size={14} color="#0E0E12" /></View>
+              {!videoPreviewError ? (
+                <Video
+                  source={{ uri: video }}
+                  style={styles.previewVideo}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay={false}
+                  isLooping={false}
+                  isMuted
+                  useNativeControls={false}
+                  onError={() => setVideoPreviewError(true)}
+                />
+              ) : (
+                <View style={styles.videoFallback}>
+                  <Ionicons name="alert-circle-outline" size={22} color="#cfd3ff" />
+                  <Text style={styles.fallbackTxt}>Não foi possível gerar preview</Text>
+                </View>
+              )}
+
+              <View style={styles.badge}>
+                <Ionicons name="play" size={12} color="#0E0E12" />
+                <Text style={styles.badgeTxt}>VÍDEO</Text>
+              </View>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity onPress={pickVideo} activeOpacity={0.9} style={styles.mediaPlaceholder}>
@@ -93,9 +118,12 @@ const styles = StyleSheet.create({
   cardTitle: { color: '#cfd3ff', fontWeight: '700', marginBottom: 8 },
   mediaPlaceholder: { height: width * 0.56, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
   mediaPreview: { height: width * 0.56, borderRadius: 14, overflow: 'hidden' },
-  previewImg: { width: '100%', height: '100%' },
+  previewVideo: { width: '100%', height: '100%' },
+  videoFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)', gap: 8 },
+  fallbackTxt: { color: '#cfd3ff', fontWeight: '600' },
   phTxt: { color: '#cfd3ff' },
-  badge: { position: 'absolute', right: 8, top: 8, backgroundColor: '#DDE1FF', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 10 },
+  badge: { position: 'absolute', right: 8, top: 8, backgroundColor: '#DDE1FF', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 11, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  badgeTxt: { color: '#0E0E12', fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
   input: { minHeight: 48, borderRadius: 12, padding: 12, backgroundColor: 'rgba(0,0,0,0.25)', color: '#fff' },
   primary: { marginTop: 18, borderRadius: 14, overflow: 'hidden' },
   primaryBg: { height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10 },
