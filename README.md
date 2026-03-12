@@ -1,66 +1,64 @@
-# Starter Template with React Navigation
+# KaAPP2
 
-This is a minimal starter template for React Native apps using Expo and React Navigation.
+Aplicativo React Native (Expo) com navegação baseada em **uma única fonte de verdade**:
 
-It includes the following:
+- `src/App.tsx` define o container de navegação e o `RootStack` principal.
+- `src/navigation/types.ts` define os tipos centrais de navegação (`RootStackParamList`).
 
-- Example [Native Stack](https://reactnavigation.org/docs/native-stack-navigator) with a nested [Bottom Tab](https://reactnavigation.org/docs/bottom-tab-navigator)
-- Web support with [React Native for Web](https://necolas.github.io/react-native-web/)
-- TypeScript support and configured for React Navigation
-- Automatic [deep link](https://reactnavigation.org/docs/deep-linking) and [URL handling configuration](https://reactnavigation.org/docs/configuring-links)
-- Theme support [based on system appearance](https://reactnavigation.org/docs/themes/#using-the-operating-system-preferences)
-- Expo [Development Build](https://docs.expo.dev/develop/development-builds/introduction/) with [Continuous Native Generation](https://docs.expo.dev/workflow/continuous-native-generation/)
-- Edge-to-edge configured on Android with [`react-native-edge-to-edge`](https://www.npmjs.com/package/react-native-edge-to-edge)
+## Arquitetura de navegação
 
-## Getting Started
+### Stack raiz (`src/App.tsx`)
 
-1. Create a new project using this template:
+O app usa `createNativeStackNavigator<RootStackParamList>()` com as rotas:
 
-   ```sh
-   npx create-expo-app@latest --template react-navigation/template
-   ```
+- `TelaLogin`
+- `RootTabs`
+- `StoryViewer`
+- `ComentariosPostagem`
+- `CriarStories`
+- `CriarPostagem`
+- `CriarShorts`
+- `LiveSetup`
 
-2. Edit the `app.json` file to configure the `name`, `slug`, `scheme` and bundle identifiers (`ios.bundleIdentifier` and `android.bundleIdentifier`) for your app.
+### Tabs (`src/navigation/KachanTabs.tsx`)
 
-3. Edit the `src/App.tsx` file to start working on your app.
+A rota `RootTabs` renderiza um `BottomTabNavigator` customizado com 5 abas:
 
-## Running the app
+- `Home`
+- `Shorts`
+- `Criar`
+- `Comunidade`
+- `Perfil`
 
-- Install the dependencies:
+A tela `Criar` dispara navegações para rotas do Stack raiz (ex.: `CriarStories`, `LiveSetup`).
 
-  ```sh
-  npm install
-  ```
+### Tipagem (`src/navigation/types.ts`)
 
-- Start the development server:
+O tipo `RootStackParamList` é a referência única para rotas do stack e parâmetros aceitos por cada tela. Qualquer `navigate(...)` para o Stack deve usar somente rotas desse tipo.
 
-  ```sh
-  npm start
-  ```
+## Estrutura relevante
 
-- Build and run iOS and Android development builds:
+```txt
+src/
+  App.tsx                    # NavigationContainer + RootStack
+  navigation/
+    KachanTabs.tsx           # Tabs customizadas
+    types.ts                 # RootStackParamList e tipos de Story
+  screens/
+    ...                      # Telas da aplicação
+```
 
-  ```sh
-  npm run ios
-  # or
-  npm run android
-  ```
+## Como rodar
 
-- In the terminal running the development server, press `i` to open the iOS simulator, `a` to open the Android device or emulator, or `w` to open the web browser.
+```bash
+npm install
+npm start
+```
 
-## Notes
+Para abrir em plataformas específicas:
 
-This project can be run with [Expo Go](https://expo.dev/go) by default. To use a [development build](https://docs.expo.dev/develop/development-builds/introduction/), install the `expo-dev-client` package and start the server with the `start:dev` script.
-
-We highly recommend using the development builds for normal development and testing when native code changes are required.
-
-The `ios` and `android` folder are gitignored in the project by default as they are automatically generated during the build process ([Continuous Native Generation](https://docs.expo.dev/workflow/continuous-native-generation/)). This means that you should not edit these folders directly and use [config plugins](https://docs.expo.dev/config-plugins/) instead. However, if you need to edit these folders, you can remove them from the `.gitignore` file so that they are tracked by git.
-
-## Resources
-
-- [React Navigation documentation](https://reactnavigation.org/)
-- [Expo documentation](https://docs.expo.dev/)
-
----
-
-Demo assets are from [lucide.dev](https://lucide.dev/)
+```bash
+npm run android
+npm run ios
+npm run web
+```

@@ -11,7 +11,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useAppNavigation } from "../navigation";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "@/navigation/types";
 
 const { width } = Dimensions.get("window");
 
@@ -19,7 +21,7 @@ const { width } = Dimensions.get("window");
 const TAB_BAR_HEIGHT = 86;
 
 export default function CreateScreen() {
-  const navigation = useAppNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const OptionCard = ({
     icon,
     title,
