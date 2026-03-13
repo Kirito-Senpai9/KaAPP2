@@ -1,26 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  BackHandler,
-  Dimensions,
-  FlatList,
   Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  PanResponder,
+  ListRenderItemInfo,
   Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  BottomSheetBackdrop,
+  BottomSheetFlatList,
+  BottomSheetModal,
+  BottomSheetTextInput,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const { height: WINDOW_HEIGHT } = Dimensions.get('window');
 
 type PostPreview = {
   id: string;
@@ -130,148 +128,33 @@ const addReplyToThread = (items: CommentItem[], parentId: string, reply: Comment
 
 export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const collapsedTop = WINDOW_HEIGHT * 0.2;
-  const expandedTop = Math.max(insets.top + 10, 8);
+  const modalRef = useRef<BottomSheetModal>(null);
+  const snapPoints = useMemo(() => ['50%', '85%', '100%'], []);
 
-  const [isMounted, setIsMounted] = useState(visible);
   const [comments, setComments] = useState<CommentItem[]>(INITIAL_COMMENTS);
   const [input, setInput] = useState('');
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  const sheetTranslateY = useRef(new Animated.Value(collapsedTop)).current;
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const dragStart = useRef(0);
 
   const totalComments = useMemo(
     () => comments.length + comments.reduce((acc, item) => acc + countDeepReplies(item.replies), 0),
     [comments]
   );
 
-  const closeSheet = () => {
-    setKeyboardHeight(0);
-    Animated.parallel([
-      Animated.timing(sheetTranslateY, {
-        toValue: WINDOW_HEIGHT,
-        duration: 260,
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayOpacity, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setIsMounted(false);
-      setIsExpanded(false);
-      onClose();
-    });
-  };
-
   useEffect(() => {
-    if (visible) {
-      setIsMounted(true);
-      sheetTranslateY.setValue(WINDOW_HEIGHT);
-      overlayOpacity.setValue(0);
-      Animated.parallel([
-        Animated.timing(sheetTranslateY, {
-          toValue: collapsedTop,
-          duration: 280,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayOpacity, {
-          toValue: 1,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else if (isMounted) {
-      closeSheet();
+    if (visible && post) {
+      modalRef.current?.present();
+      return;
     }
-  }, [collapsedTop, isMounted, overlayOpacity, sheetTranslateY, visible]);
 
-  useEffect(() => {
-    if (!isMounted) return;
+    modalRef.current?.dismiss();
+  }, [post, visible]);
 
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeSheet();
-      return true;
-    });
-
-    return () => sub.remove();
-  }, [isMounted]);
-
-  useEffect(() => {
-    if (!isMounted || Platform.OS !== 'android') return;
-
-    const onShow = Keyboard.addListener('keyboardDidShow', (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-    });
-
-    const onHide = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, [isMounted]);
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 6,
-        onPanResponderGrant: () => {
-          const current = isExpanded ? expandedTop : collapsedTop;
-          dragStart.current = current;
-        },
-        onPanResponderMove: (_, gesture) => {
-          const next = Math.min(WINDOW_HEIGHT, Math.max(expandedTop, dragStart.current + gesture.dy));
-          sheetTranslateY.setValue(next);
-        },
-        onPanResponderRelease: (_, gesture) => {
-          const currentPosition = dragStart.current + gesture.dy;
-          const midpoint = (collapsedTop + expandedTop) / 2;
-
-          if (gesture.dy > 140 || gesture.vy > 1.2) {
-            closeSheet();
-            return;
-          }
-
-          if ((gesture.dy < -120 || currentPosition < midpoint) && !isExpanded) {
-            setIsExpanded(true);
-            Animated.spring(sheetTranslateY, {
-              toValue: expandedTop,
-              damping: 22,
-              stiffness: 220,
-              useNativeDriver: true,
-            }).start();
-            return;
-          }
-
-          if ((gesture.dy > 90 || currentPosition > midpoint) && isExpanded) {
-            setIsExpanded(false);
-            Animated.spring(sheetTranslateY, {
-              toValue: collapsedTop,
-              damping: 22,
-              stiffness: 220,
-              useNativeDriver: true,
-            }).start();
-            return;
-          }
-
-          Animated.timing(sheetTranslateY, {
-            toValue: isExpanded ? expandedTop : collapsedTop,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [collapsedTop, expandedTop, isExpanded, sheetTranslateY]
-  );
+  const handleDismiss = useCallback(() => {
+    setReplyingTo(null);
+    setInput('');
+    onClose();
+  }, [onClose]);
 
   const sendComment = () => {
     const message = input.trim();
@@ -296,121 +179,105 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
     setReplyingTo(null);
   };
 
-  const keyboardOffset = insets.top + 44;
-
-  if (!isMounted) return null;
-
   return (
-    <Modal transparent visible={isMounted} animationType="none" onRequestClose={closeSheet}>
-      <View style={styles.modalRoot}>
-        <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
-        </Animated.View>
+    <BottomSheetModal
+      ref={modalRef}
+      index={0}
+      snapPoints={snapPoints}
+      onDismiss={handleDismiss}
+      enablePanDownToClose
+      enableContentPanningGesture
+      enableHandlePanningGesture
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustPan"
+      backdropComponent={(props: BottomSheetBackdropProps) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" />}
+      handleIndicatorStyle={styles.grabHandle}
+      backgroundStyle={styles.sheetBackground}
+    >
+      <BottomSheetView style={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Comentários • {totalComments}</Text>
+          {!!post && <Text style={styles.headerSub}>Post de {post.user}</Text>}
+        </View>
 
-        <Animated.View
-          style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
-        >
-          <View style={styles.handleWrap} {...panResponder.panHandlers}>
-            <View style={styles.grabHandle} />
-          </View>
+        <BottomSheetFlatList
+          data={comments}
+          keyExtractor={(item: CommentItem) => item.id}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item }: ListRenderItemInfo<CommentItem>) => {
+            const repliesCount = countDeepReplies(item.replies);
+            const expanded = !!expandedThreads[item.id];
 
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Comentários • {totalComments}</Text>
-            {!!post && <Text style={styles.headerSub}>Post de {post.user}</Text>}
-          </View>
+            return (
+              <View style={styles.block}>
+                <CommentRow
+                  comment={item}
+                  depth={0}
+                  onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+                  onReply={setReplyingTo}
+                />
 
-          <KeyboardAvoidingView
-            style={styles.content}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? keyboardOffset : 0}
-          >
-            <FlatList
-              data={comments}
-              keyExtractor={(item) => item.id}
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              renderItem={({ item }) => {
-                const repliesCount = countDeepReplies(item.replies);
-                const expanded = !!expandedThreads[item.id];
+                {repliesCount > 0 && (
+                  <Pressable
+                    style={styles.repliesBtn}
+                    onPress={() =>
+                      setExpandedThreads((prev) => ({
+                        ...prev,
+                        [item.id]: !prev[item.id],
+                      }))
+                    }
+                  >
+                    <Text style={styles.repliesBtnText}>{expanded ? 'Ocultar respostas' : `Ver respostas (${repliesCount})`}</Text>
+                  </Pressable>
+                )}
 
-                return (
-                  <View style={styles.block}>
+                {expanded &&
+                  item.replies.map((reply) => (
                     <CommentRow
-                      comment={item}
-                      depth={0}
+                      key={reply.id}
+                      comment={reply}
+                      depth={1}
                       onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
                       onReply={setReplyingTo}
                     />
-
-                    {repliesCount > 0 && (
-                      <Pressable
-                        style={styles.repliesBtn}
-                        onPress={() =>
-                          setExpandedThreads((prev) => ({
-                            ...prev,
-                            [item.id]: !prev[item.id],
-                          }))
-                        }
-                      >
-                        <Text style={styles.repliesBtnText}>{expanded ? 'Ocultar respostas' : `Ver respostas (${repliesCount})`}</Text>
-                      </Pressable>
-                    )}
-
-                    {expanded &&
-                      item.replies.map((reply) => (
-                        <CommentRow
-                          key={reply.id}
-                          comment={reply}
-                          depth={1}
-                          onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
-                          onReply={setReplyingTo}
-                        />
-                      ))}
-                  </View>
-                );
-              }}
-            />
-
-            <View
-              style={[
-                styles.composerWrap,
-                {
-                  paddingBottom: insets.bottom + 8 + (Platform.OS === 'android' ? keyboardHeight : 0),
-                },
-              ]}
-            >
-              {!!replyingTo && (
-                <View style={styles.replyBadge}>
-                  <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
-                  <Pressable onPress={() => setReplyingTo(null)}>
-                    <Ionicons name="close" size={16} color="#E4E8FF" />
-                  </Pressable>
-                </View>
-              )}
-
-              <View style={styles.composerRow}>
-                <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
-                <TextInput
-                  value={input}
-                  onChangeText={setInput}
-                  placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
-                  placeholderTextColor="#8B94C4"
-                  style={styles.input}
-                />
-                <TouchableOpacity style={styles.iconBtn}>
-                  <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.sendBtn} onPress={sendComment}>
-                  <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
-                </TouchableOpacity>
+                  ))}
               </View>
+            );
+          }}
+        />
+
+        <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}>
+          {!!replyingTo && (
+            <View style={styles.replyBadge}>
+              <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
+              <Pressable onPress={() => setReplyingTo(null)}>
+                <Ionicons name="close" size={16} color="#E4E8FF" />
+              </Pressable>
             </View>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      </View>
-    </Modal>
+          )}
+
+          <View style={styles.composerRow}>
+            <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
+            <BottomSheetTextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
+              placeholderTextColor="#8B94C4"
+              style={styles.input}
+            />
+            <TouchableOpacity style={styles.iconBtn}>
+              <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sendBtn} onPress={sendComment}>
+              <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
@@ -456,24 +323,12 @@ function CommentRow({
 }
 
 const styles = StyleSheet.create({
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6,7,16,0.48)',
-  },
-  sheet: {
-    height: WINDOW_HEIGHT,
+  sheetBackground: {
+    backgroundColor: '#101327',
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    backgroundColor: '#101327',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.08)',
-    overflow: 'hidden',
-  },
-  handleWrap: {
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 4,
   },
   grabHandle: {
     width: 44,
@@ -546,7 +401,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   meAvatar: { width: 30, height: 30, borderRadius: 15, marginRight: 6 },
-  input: { flex: 1, color: '#FFFFFF', fontSize: 15, paddingVertical: 10, paddingHorizontal: 6 },
+  input: { flex: 1, color: '#FFFFFF', fontSize: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, paddingHorizontal: 6 },
   iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   sendBtn: {
     width: 34,
