@@ -6,63 +6,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import type { Short } from '@/types/social';
+import { useShorts } from '@/features/shorts/hooks/useShorts';
 
 const { width, height } = Dimensions.get('window');
 
 /** Altura estimada da sua bottom bar custom (KachanTabs). */
 const TAB_BAR_HEIGHT = 86;
 const DOUBLE_TAP_DELAY_MS = 280;
-
-/* =========================================
-   Tipos e dados mock
-========================================= */
-type User = {
-  id: string;
-  name: string;
-  avatar: string;
-  following?: boolean;
-};
-
-type ShortItem = {
-  id: string;
-  user: User;
-  caption: string;
-  music: string;
-  videoUrl: string;
-  likes: number;
-  comments: number;
-  shares: number;
-};
-
-const FOR_YOU: ShortItem[] = [
-  {
-    id: 'fy1',
-    user: { id: 'u1', name: 'Lua', avatar: 'https://i.pravatar.cc/150?img=2', following: false },
-    caption: 'Novo mapa neon 🎮✨ #kachan',
-    music: 'Beat Cyber - DJ K',
-    videoUrl: 'https://cdn.coverr.co/videos/coverr-neon-arcade-5723/1080p.mp4',
-    likes: 1280, comments: 144, shares: 40,
-  },
-  {
-    id: 'fy2',
-    user: { id: 'u2', name: 'Kai', avatar: 'https://i.pravatar.cc/150?img=3', following: false },
-    caption: 'Speed run hoje às 20h! ⏱️',
-    music: 'Hyper Pulse - Kai',
-    videoUrl: 'https://cdn.coverr.co/videos/coverr-synthwave-street-2186/1080p.mp4',
-    likes: 930, comments: 88, shares: 22,
-  },
-];
-
-const FOLLOWING: ShortItem[] = [
-  {
-    id: 'fo1',
-    user: { id: 'u4', name: 'Mina', avatar: 'https://i.pravatar.cc/150?img=4', following: true },
-    caption: 'Build novo com shaders 💡',
-    music: 'Dream Lights - Mina',
-    videoUrl: 'https://cdn.coverr.co/videos/coverr-digital-billboards-4800/1080p.mp4',
-    likes: 2200, comments: 320, shares: 120,
-  },
-];
 
 /* =========================================
    Abas topo (Para você / Seguindo) — só texto
@@ -90,7 +41,7 @@ function Tabs({
 const ShortCard = memo(function ShortCard({
   item, playing, onDoubleLike,
 }: {
-  item: ShortItem;
+  item: Short;
   playing: boolean;            // controla qual página está visível
   onDoubleLike?: () => void;
 }) {
@@ -322,29 +273,32 @@ const ShortCard = memo(function ShortCard({
    Tela principal (lista vertical com paging)
 ========================================= */
 export default function Shorts() {
-  const [mode, setMode] = useState<'forYou' | 'following'>('forYou');
-  const data = mode === 'forYou' ? FOR_YOU : FOLLOWING;
+  const { mode, setMode, data } = useShorts();
 
   const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
 
+  useEffect(() => {
+    setActiveId(data[0]?.id ?? null);
+  }, [data]);
+
   // controlar qual vídeo está visível
-  const isShortItem = (item: unknown): item is ShortItem => (
+  const isShort = (item: unknown): item is Short => (
     !!item
     && typeof item === 'object'
     && 'id' in item
     && typeof item.id === 'string'
   );
 
-  const onViewableItemsChanged = useRef<NonNullable<FlatListProps<ShortItem>['onViewableItemsChanged']>>(({ viewableItems }) => {
-    const viewableItem = viewableItems.find((token: ViewToken<ShortItem>) => token.isViewable);
+  const onViewableItemsChanged = useRef<NonNullable<FlatListProps<Short>['onViewableItemsChanged']>>(({ viewableItems }) => {
+    const viewableItem = viewableItems.find((token: ViewToken<Short>) => token.isViewable);
 
-    if (isShortItem(viewableItem?.item)) setActiveId(viewableItem.item.id);
+    if (isShort(viewableItem?.item)) setActiveId(viewableItem.item.id);
   }).current;
 
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 80 });
 
   const renderItem = useCallback(
-    ({ item }: { item: ShortItem }) => (
+    ({ item }: { item: Short }) => (
       <ShortCard item={item} playing={item.id === activeId} onDoubleLike={() => {}} />
     ),
     [activeId]
@@ -357,6 +311,9 @@ export default function Shorts() {
 
       <FlatList
         data={data}
+        initialNumToRender={2}
+        windowSize={4}
+        maxToRenderPerBatch={3}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         pagingEnabled
