@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   View,
   Text,
@@ -35,7 +35,7 @@ export default function CreateScreen() {
     onPress?: () => void;
     isLast?: boolean;
   }) => {
-    const scale = new Animated.Value(1);
+    const scale = useRef(new Animated.Value(1)).current;
 
     const onPressIn = () => {
       Animated.spring(scale, { toValue: 0.97, useNativeDriver: true }).start();

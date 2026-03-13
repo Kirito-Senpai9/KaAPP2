@@ -20,17 +20,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PostPreview } from '@/types/social';
-
-type CommentItem = {
-  id: string;
-  user: string;
-  avatar: string;
-  text: string;
-  createdAt: number;
-  likes: number;
-  liked?: boolean;
-  replies: CommentItem[];
-};
+import type { CommentItem } from '@/features/comments/types/comments';
+import { timeAgo, countRepliesDeep, toggleLikeById, addReplyToThread } from '@/features/comments/utils/commentsUtils';
+import { CURRENT_USER, INITIAL_COMMENTS } from '@/features/comments/services/commentsService';
 
 type Props = {
   visible: boolean;
@@ -38,87 +30,6 @@ type Props = {
   onClose: () => void;
 };
 
-const CURRENT_USER = {
-  name: 'Você',
-  avatar: 'https://i.pravatar.cc/150?img=11',
-};
-
-const INITIAL_COMMENTS: CommentItem[] = [
-  {
-    id: 'c1',
-    user: 'Ayla',
-    avatar: 'https://i.pravatar.cc/150?img=17',
-    text: 'FPS estava travando no início, mas depois ficou liso!',
-    createdAt: Date.now() - 1000 * 60 * 42,
-    likes: 112,
-    replies: [
-      {
-        id: 'c1-r1',
-        user: 'Kai',
-        avatar: 'https://i.pravatar.cc/150?img=3',
-        text: 'Esse patch ajudou demais no desempenho.',
-        createdAt: Date.now() - 1000 * 60 * 33,
-        likes: 28,
-        replies: [],
-      },
-    ],
-  },
-  {
-    id: 'c2',
-    user: 'Noah',
-    avatar: 'https://i.pravatar.cc/150?img=5',
-    text: 'Partiu mais uma ranked hoje à noite?',
-    createdAt: Date.now() - 1000 * 60 * 24,
-    likes: 63,
-    replies: [],
-  },
-  {
-    id: 'c3',
-    user: 'Luna',
-    avatar: 'https://i.pravatar.cc/150?img=2',
-    text: 'Não estou arrumando desculpas 😅',
-    createdAt: Date.now() - 1000 * 60 * 15,
-    likes: 48,
-    replies: [],
-  },
-];
-
-const timeAgo = (createdAt: number) => {
-  const minutes = Math.max(1, Math.floor((Date.now() - createdAt) / 60000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h`;
-  return `${Math.floor(hours / 24)} d`;
-};
-
-const countDeepReplies = (items: CommentItem[]): number =>
-  items.reduce((acc, item) => acc + 1 + countDeepReplies(item.replies), 0);
-
-const toggleLikeById = (items: CommentItem[], id: string): CommentItem[] =>
-  items.map((item) => {
-    if (item.id === id) {
-      const liked = !item.liked;
-      return {
-        ...item,
-        liked,
-        likes: liked ? item.likes + 1 : Math.max(0, item.likes - 1),
-      };
-    }
-
-    return { ...item, replies: toggleLikeById(item.replies, id) };
-  });
-
-const addReplyToThread = (items: CommentItem[], parentId: string, reply: CommentItem): CommentItem[] =>
-  items.map((item) => {
-    if (item.id === parentId) {
-      return { ...item, replies: [...item.replies, reply] };
-    }
-
-    return {
-      ...item,
-      replies: addReplyToThread(item.replies, parentId, reply),
-    };
-  });
 
 export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   const insets = useSafeAreaInsets();
@@ -131,7 +42,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
 
   const totalComments = useMemo(
-    () => comments.length + comments.reduce((acc, item) => acc + countDeepReplies(item.replies), 0),
+    () => comments.length + comments.reduce((acc, item) => acc + countRepliesDeep(item.replies), 0),
     [comments]
   );
 
@@ -158,7 +69,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
       id: `${Date.now()}`,
       user: CURRENT_USER.name,
       avatar: CURRENT_USER.avatar,
-      text: message,
+      content: message,
       createdAt: Date.now(),
       likes: 0,
       replies: [],
@@ -202,7 +113,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }: ListRenderItemInfo<CommentItem>) => {
-            const repliesCount = countDeepReplies(item.replies);
+            const repliesCount = countRepliesDeep(item.replies);
             const expanded = !!expandedThreads[item.id];
 
             return (
@@ -298,7 +209,7 @@ function CommentRow({
           <Text style={styles.time}>{timeAgo(comment.createdAt)}</Text>
         </View>
 
-        <Text style={[styles.text, isReply && styles.replyText]}>{comment.text}</Text>
+        <Text style={[styles.text, isReply && styles.replyText]}>{comment.content}</Text>
 
         <View style={styles.rowActions}>
           <Pressable onPress={() => onReply(comment)}>

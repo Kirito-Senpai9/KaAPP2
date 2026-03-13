@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
   Animated,
   FlatList,
@@ -18,195 +18,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
+import { useComments } from '@/features/comments/hooks/useComments';
+import type { CommentItem } from '@/features/comments/types/comments';
+import { STICKER_CATEGORIES, STICKERS } from '@/features/comments/services/commentsService';
+import { countRepliesDeep, timeAgo } from '@/features/comments/utils/commentsUtils';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ComentariosPostagem'>;
-
-type CommentItem = {
-  id: string;
-  user: string;
-  avatar: string;
-  content: string;
-  createdAt: number;
-  likes: number;
-  liked?: boolean;
-  replies: CommentItem[];
-  sticker?: {
-    label: string;
-    uri: string;
-    animated?: boolean;
-  };
-};
-
-const CURRENT_USER = {
-  name: 'Você',
-  avatar: 'https://i.pravatar.cc/150?img=11',
-};
-
-type StickerCategoryId = 'recentes' | 'favoritos' | 'packs' | 'animados' | 'estaticos';
-
-type StickerItem = {
-  id: string;
-  label: string;
-  uri: string;
-  category: StickerCategoryId;
-  animated?: boolean;
-};
-
-const STICKER_CATEGORIES: { id: StickerCategoryId; label: string }[] = [
-  { id: 'recentes', label: 'Recentes' },
-  { id: 'favoritos', label: 'Favoritos' },
-  { id: 'packs', label: 'Packs' },
-  { id: 'animados', label: 'Animados' },
-  { id: 'estaticos', label: 'Estáticos' },
-];
-
-const STICKERS: StickerItem[] = [
-  {
-    id: 's1',
-    label: 'KaAPP Glow',
-    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWhxczB5d2x6dDR0YW53Z29hamU2ejI5cjRheDFqaW9iM2x0MjNqaiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xUPGcvDelgloOjwuFG/giphy.gif',
-    category: 'animados',
-    animated: true,
-  },
-  {
-    id: 's2',
-    label: 'GG',
-    uri: 'https://images.unsplash.com/photo-1618005198919-d3d4b5a92eee?auto=format&fit=crop&w=220&q=80',
-    category: 'estaticos',
-  },
-  {
-    id: 's3',
-    label: 'KaAPP Heart',
-    uri: 'https://images.unsplash.com/photo-1614332287897-cdc485fa562d?auto=format&fit=crop&w=220&q=80',
-    category: 'favoritos',
-  },
-  {
-    id: 's4',
-    label: 'Party',
-    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHp2N2V4N3c1enA3a21jOG44M2RhZnRhaW9ya2VjaW9mdzNlOWo3aSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/YnBntKOgnUSBkV7bQH/giphy.gif',
-    category: 'recentes',
-    animated: true,
-  },
-  {
-    id: 's5',
-    label: 'Foco',
-    uri: 'https://images.unsplash.com/photo-1617791160505-6f00504e3519?auto=format&fit=crop&w=220&q=80',
-    category: 'packs',
-  },
-  {
-    id: 's6',
-    label: 'KaAPP Fire',
-    uri: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3BydDZ6eXQ2Y2FyZ2N6dzVwaG81M2J0d2RmcjNlNDhtOWR5NGQ0dSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/5VKbvrjxpVJCM/giphy.gif',
-    category: 'animados',
-    animated: true,
-  },
-  {
-    id: 's7',
-    label: 'Vibe',
-    uri: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=220&q=80',
-    category: 'recentes',
-  },
-  {
-    id: 's8',
-    label: 'Ranked',
-    uri: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=220&q=80',
-    category: 'packs',
-  },
-];
-
-const INITIAL_COMMENTS: CommentItem[] = [
-  {
-    id: 'c1',
-    user: 'Ayla',
-    avatar: 'https://i.pravatar.cc/150?img=17',
-    content: 'FPS estava travando no início, mas depois ficou liso!',
-    createdAt: Date.now() - 1000 * 60 * 42,
-    likes: 112,
-    replies: [
-      {
-        id: 'c1-r1',
-        user: 'Kai',
-        avatar: 'https://i.pravatar.cc/150?img=3',
-        content: 'Esse patch ajudou demais no desempenho.',
-        createdAt: Date.now() - 1000 * 60 * 33,
-        likes: 28,
-        replies: [],
-      },
-      {
-        id: 'c1-r2',
-        user: 'Mia',
-        avatar: 'https://i.pravatar.cc/150?img=19',
-        content: 'Aqui também melhorou muito depois do update!',
-        createdAt: Date.now() - 1000 * 60 * 29,
-        likes: 9,
-        replies: [],
-      },
-    ],
-  },
-  {
-    id: 'c2',
-    user: 'Noah',
-    avatar: 'https://i.pravatar.cc/150?img=5',
-    content: 'Partiu mais uma ranked hoje à noite?',
-    createdAt: Date.now() - 1000 * 60 * 24,
-    likes: 63,
-    replies: [],
-  },
-  {
-    id: 'c3',
-    user: 'Luna',
-    avatar: 'https://i.pravatar.cc/150?img=2',
-    content: 'Não estou arrumando desculpas 😅',
-    createdAt: Date.now() - 1000 * 60 * 15,
-    likes: 48,
-    replies: [],
-  },
-];
-
-const sortChronologically = (items: CommentItem[]): CommentItem[] =>
-  [...items]
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .map((item) => ({ ...item, replies: sortChronologically(item.replies) }));
-
-const addReplyToThread = (items: CommentItem[], parentId: string, reply: CommentItem): CommentItem[] => {
-  return items.map((item) => {
-    if (item.id === parentId) {
-      return { ...item, replies: sortChronologically([...item.replies, reply]) };
-    }
-
-    return {
-      ...item,
-      replies: addReplyToThread(item.replies, parentId, reply),
-    };
-  });
-};
-
-const toggleLikeById = (items: CommentItem[], id: string): CommentItem[] => {
-  return items.map((item) => {
-    if (item.id === id) {
-      const liked = !item.liked;
-      return {
-        ...item,
-        liked,
-        likes: liked ? item.likes + 1 : item.likes - 1,
-      };
-    }
-
-    return { ...item, replies: toggleLikeById(item.replies, id) };
-  });
-};
-
-const countRepliesDeep = (items: CommentItem[]): number => {
-  return items.reduce((total, item) => total + 1 + countRepliesDeep(item.replies), 0);
-};
-
-const timeAgo = (createdAt: number) => {
-  const minutes = Math.max(1, Math.floor((Date.now() - createdAt) / 60000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h`;
-  return `${Math.floor(hours / 24)} d`;
-};
 
 function CommentRow({
   comment,
@@ -284,12 +101,21 @@ function CommentRow({
 
 export default function ComentariosPostagem({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const [comments, setComments] = useState<CommentItem[]>(sortChronologically(INITIAL_COMMENTS));
-  const [input, setInput] = useState('');
-  const [showStickers, setShowStickers] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<StickerCategoryId>('recentes');
-  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const {
+    comments,
+    input,
+    setInput,
+    expandedThreads,
+    setExpandedThreads,
+    replyingTo,
+    setReplyingTo,
+    showStickers,
+    setShowStickers,
+    selectedCategory,
+    setSelectedCategory,
+    sendComment,
+    toggleLike,
+  } = useComments();
 
   const filteredStickers = useMemo(() => {
     if (selectedCategory === 'animados') {
@@ -302,35 +128,6 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
     return STICKERS.filter((sticker) => sticker.category === selectedCategory);
   }, [selectedCategory]);
-
-  const sendComment = (sticker?: CommentItem['sticker']) => {
-    const message = input.trim();
-    if (!sticker && !message) return;
-
-    const newComment: CommentItem = {
-      id: `${Date.now()}`,
-      user: CURRENT_USER.name,
-      avatar: CURRENT_USER.avatar,
-      content: sticker ? '' : message,
-      sticker,
-      likes: 0,
-      liked: false,
-      replies: [],
-      createdAt: Date.now(),
-    };
-
-    setComments((prev) => {
-      if (replyingTo) {
-        return sortChronologically(addReplyToThread(prev, replyingTo.id, newComment));
-      }
-
-      return sortChronologically([...prev, newComment]);
-    });
-
-    setInput('');
-    setShowStickers(false);
-    setReplyingTo(null);
-  };
 
   const toggleStickerPanel = () => {
     Keyboard.dismiss();
@@ -348,7 +145,7 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
             setReplyingTo(comment);
             setShowStickers(false);
           }}
-          onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+          onLike={toggleLike}
         />
         {reply.replies.length > 0 ? renderReplies(reply.replies, depth + 1, false) : null}
       </View>
@@ -379,6 +176,9 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
       >
         <FlatList
           data={comments}
+          initialNumToRender={6}
+          windowSize={6}
+          maxToRenderPerBatch={8}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
             const totalReplies = countRepliesDeep(item.replies);
@@ -393,7 +193,7 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
                     setReplyingTo(comment);
                     setShowStickers(false);
                   }}
-                  onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
+                  onLike={toggleLike}
                 />
 
                 {totalReplies > 0 && (
@@ -480,6 +280,9 @@ export default function ComentariosPostagem({ navigation, route }: Props) {
 
               <FlatList
                 data={filteredStickers}
+                initialNumToRender={8}
+                windowSize={5}
+                maxToRenderPerBatch={10}
                 keyExtractor={(item) => item.id}
                 numColumns={4}
                 showsVerticalScrollIndicator={false}

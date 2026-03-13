@@ -18,14 +18,7 @@ import Shorts from '../screens/Shorts';
 import Comunidade from '../screens/Comunidade';
 import Perfil from '../screens/Perfil';
 import Criar from '../screens/Criar';
-
-export type KachanTabParamList = {
-  Home: undefined;
-  Shorts: undefined;
-  Criar: undefined;
-  Comunidade: undefined;
-  Perfil: undefined;
-};
+import type { KachanTabParamList } from '@/navigation/types';
 
 type RouteName = keyof KachanTabParamList;
 const Tab = createBottomTabNavigator<KachanTabParamList>();

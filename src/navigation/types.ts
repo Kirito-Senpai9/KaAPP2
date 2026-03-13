@@ -1,33 +1,14 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { PostPreview } from '@/types/social';
+import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { PostPreview, Story, StoryMediaItem, StoryMediaType, StoryOverlay } from '@/types/social';
 
-export type StoryMediaType = 'image' | 'video';
-
-export type StoryOverlay = {
-  id: string;
-  type: 'text' | 'emoji' | 'sticker' | 'music';
-  content: string;
-};
-
-export type StoryMediaItem = {
-  id: string;
-  type: StoryMediaType;
-  uri: string;
-  thumbnail?: string;
-  postedAt: string;
-  durationMs?: number;
-  overlays?: StoryOverlay[];
-};
-
-export type StoryUser = {
-  id: string;
-  name: string;
-  avatar: string;
-  stories: StoryMediaItem[];
-};
+export type StoryUser = Story;
+export type StoryMediaItemType = StoryMediaItem;
+export type StoryMediaTypeName = StoryMediaType;
+export type StoryOverlayItem = StoryOverlay;
 
 export type StoryViewerParams = {
-  users: StoryUser[];
+  users: Story[];
   initialUserIndex: number;
   initialStoryIndex: number;
 };
@@ -43,5 +24,16 @@ export type RootStackParamList = {
   LiveSetup: undefined;
 };
 
+export type KachanTabParamList = {
+  Home: undefined;
+  Shorts: undefined;
+  Criar: undefined;
+  Comunidade: undefined;
+  Perfil: undefined;
+};
+
 export type RootStackScreenProps<T extends keyof RootStackParamList> =
   NativeStackScreenProps<RootStackParamList, T>;
+
+export type KachanTabScreenProps<T extends keyof KachanTabParamList> =
+  BottomTabScreenProps<KachanTabParamList, T>;
