@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -138,6 +139,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const sheetTranslateY = useRef(new Animated.Value(collapsedTop)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -149,6 +151,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   );
 
   const closeSheet = () => {
+    setKeyboardHeight(0);
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
         toValue: WINDOW_HEIGHT,
@@ -200,6 +203,23 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
     return () => sub.remove();
   }, [isMounted]);
 
+  useEffect(() => {
+    if (!isMounted || Platform.OS !== 'android') return;
+
+    const onShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+
+    const onHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [isMounted]);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -213,26 +233,31 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
           sheetTranslateY.setValue(next);
         },
         onPanResponderRelease: (_, gesture) => {
+          const currentPosition = dragStart.current + gesture.dy;
+          const midpoint = (collapsedTop + expandedTop) / 2;
+
           if (gesture.dy > 140 || gesture.vy > 1.2) {
             closeSheet();
             return;
           }
 
-          if (gesture.dy < -120 && !isExpanded) {
+          if ((gesture.dy < -120 || currentPosition < midpoint) && !isExpanded) {
             setIsExpanded(true);
-            Animated.timing(sheetTranslateY, {
+            Animated.spring(sheetTranslateY, {
               toValue: expandedTop,
-              duration: 220,
+              damping: 22,
+              stiffness: 220,
               useNativeDriver: true,
             }).start();
             return;
           }
 
-          if (gesture.dy > 90 && isExpanded) {
+          if ((gesture.dy > 90 || currentPosition > midpoint) && isExpanded) {
             setIsExpanded(false);
-            Animated.timing(sheetTranslateY, {
+            Animated.spring(sheetTranslateY, {
               toValue: collapsedTop,
-              duration: 220,
+              damping: 22,
+              stiffness: 220,
               useNativeDriver: true,
             }).start();
             return;
@@ -283,10 +308,11 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
         </Animated.View>
 
         <Animated.View
-          style={[styles.sheet, { paddingBottom: insets.bottom + 8, transform: [{ translateY: sheetTranslateY }] }]}
-          {...panResponder.panHandlers}
+          style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
         >
-          <View style={styles.grabHandle} />
+          <View style={styles.handleWrap} {...panResponder.panHandlers}>
+            <View style={styles.grabHandle} />
+          </View>
 
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Comentários • {totalComments}</Text>
@@ -304,6 +330,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
               style={styles.list}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               renderItem={({ item }) => {
                 const repliesCount = countDeepReplies(item.replies);
                 const expanded = !!expandedThreads[item.id];
@@ -346,7 +373,14 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
               }}
             />
 
-            <View style={styles.composerWrap}>
+            <View
+              style={[
+                styles.composerWrap,
+                {
+                  paddingBottom: insets.bottom + 8 + (Platform.OS === 'android' ? keyboardHeight : 0),
+                },
+              ]}
+            >
               {!!replyingTo && (
                 <View style={styles.replyBadge}>
                   <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
@@ -436,9 +470,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
+  handleWrap: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
   grabHandle: {
-    alignSelf: 'center',
-    marginTop: 10,
     width: 44,
     height: 5,
     borderRadius: 99,
