@@ -11,25 +11,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/navigation/types';
 import CommentsBottomSheet from '@/components/CommentsBottomSheet';
+import type { Post } from '@/types/social';
 
 const { width } = Dimensions.get('window');
-
-type Post  = {
-  id: string;
-  type: 'image' | 'video-vertical' | 'video-horizontal';
-  user: string;
-  avatar: string;
-  image?: string;
-  video?: string;
-  thumbnail?: string;
-  text: string;
-  hashtags?: string[];
-  timeLabel: string;
-  likes: number;
-  comments: number;
-  reposts: number;
-  shares: number;
-};
 
 type MenuAnchor = {
   x: number;

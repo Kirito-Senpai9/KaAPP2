@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { PostPreview } from '@/types/social';
 
 export type StoryMediaType = 'image' | 'video';
 
@@ -34,15 +35,7 @@ export type StoryViewerParams = {
 export type RootStackParamList = {
   TelaLogin: undefined;
   RootTabs: undefined;
-  ComentariosPostagem: {
-    post: {
-      id: string;
-      user: string;
-      avatar: string;
-      text: string;
-      type: 'image' | 'video-vertical' | 'video-horizontal';
-    };
-  };
+  ComentariosPostagem: { post: PostPreview };
   StoryViewer: StoryViewerParams;
   CriarStories: undefined;
   CriarPostagem: undefined;

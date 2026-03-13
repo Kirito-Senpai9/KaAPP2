@@ -19,13 +19,7 @@ import {
 } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-type PostPreview = {
-  id: string;
-  user: string;
-  avatar: string;
-  text: string;
-};
+import type { PostPreview } from '@/types/social';
 
 type CommentItem = {
   id: string;
