@@ -8,7 +8,9 @@
     "web": "expo start --web",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:imports": "node scripts/check-no-legacy-screens-imports.mjs",
+    "lint": "npm run lint:imports && npm run typecheck"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

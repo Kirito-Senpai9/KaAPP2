@@ -44,9 +44,19 @@ src/
   navigation/
     KachanTabs.tsx           # Tabs customizadas
     types.ts                 # RootStackParamList e tipos de Story
-  screens/
-    ...                      # Telas da aplicação
+  features/
+    */screens/               # Telas por domínio (fonte oficial)
 ```
+
+## Migração de imports de telas
+
+- Imports via `@/screens/*` foram descontinuados e removidos.
+- Use somente `@/features/*/screens` (ou os índices de cada feature).
+- Regra interna: execute `npm run lint:imports` para bloquear novos imports legados.
+
+### Depreciação
+
+A camada de wrappers em `src/screens/` já foi removida nesta branch por não haver referências ativas. Não há período de transição pendente.
 
 ## Como rodar
 
