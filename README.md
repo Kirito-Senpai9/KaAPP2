@@ -1,52 +1,75 @@
 # KaAPP2
 
-Aplicativo React Native (Expo) com navegação baseada em **uma única fonte de verdade**:
+Aplicativo React Native (Expo) com navegação baseada em **uma única fonte de verdade** e organização por domínio em `src/features/*`.
 
 - `src/App.tsx` define o container de navegação e o `RootStack` principal.
 - `src/navigation/types.ts` define os tipos centrais de navegação (`RootStackParamList`).
 
 ## Arquitetura de navegação
 
-### Stack raiz (`src/App.tsx`)
+### `src/App.tsx` como composição das telas de feature
 
-O app usa `createNativeStackNavigator<RootStackParamList>()` com as rotas:
+`src/App.tsx` é o ponto de entrada da navegação. Ele:
 
-- `TelaLogin`
-- `RootTabs`
-- `StoryViewer`
-- `ComentariosPostagem`
-- `CriarStories`
-- `CriarPostagem`
-- `CriarShorts`
-- `LiveSetup`
+- monta o `NavigationContainer`;
+- cria o `RootStack` tipado com `RootStackParamList`;
+- compõe telas vindas de múltiplas features (ex.: `auth`, `stories`, `create`, `shorts`, `comments`), registrando-as como rotas do stack;
+- conecta a rota `RootTabs` (tabs principais) às demais rotas de fluxo modal/fullscreen.
 
-### Tabs (`src/navigation/KachanTabs.tsx`)
+Em outras palavras, o `App.tsx` **não é um diretório de telas**: ele orquestra telas de domínio que vivem em `src/features/*`.
 
-A rota `RootTabs` renderiza um `BottomTabNavigator` customizado com 5 abas:
+### Papel de `src/navigation/*`
 
-- `Home`
-- `Shorts`
-- `Criar`
-- `Comunidade`
-- `Perfil`
+A pasta `src/navigation/*` centraliza a infraestrutura de navegação:
 
-A tela `Criar` dispara navegações para rotas do Stack raiz (ex.: `CriarStories`, `LiveSetup`).
+- `KachanTabs.tsx`: define o `BottomTabNavigator` customizado e o comportamento visual/funcional das abas (`Home`, `Shorts`, `Criar`, `Comunidade`, `Perfil`);
+- `types.ts`: define `RootStackParamList` e tipos auxiliares de navegação usados entre features.
 
-### Tipagem (`src/navigation/types.ts`)
-
-O tipo `RootStackParamList` é a referência única para rotas do stack e parâmetros aceitos por cada tela. Qualquer `navigate(...)` para o Stack deve usar somente rotas desse tipo.
+Isso mantém regras de roteamento e tipagem desacopladas da implementação de cada tela.
 
 ## Estrutura relevante
 
 ```txt
 src/
-  App.tsx                    # NavigationContainer + RootStack
+  App.tsx                          # Composition root da navegação (NavigationContainer + RootStack)
   navigation/
-    KachanTabs.tsx           # Tabs customizadas
-    types.ts                 # RootStackParamList e tipos de Story
-  screens/
-    ...                      # Telas da aplicação
+    KachanTabs.tsx                 # Configuração das tabs
+    types.ts                       # Tipos de navegação (RootStackParamList etc.)
+  features/
+    auth/
+      screens/
+      hooks/
+      services/
+      types/
+    feed/
+      screens/
+      hooks/
+      services/
+      types/
+    stories/
+      screens/
+      hooks/
+      services/
+      types/
+    comments/
+      screens/
+      hooks/
+      services/
+      types/
+    ...                            # Demais domínios seguem o mesmo padrão
+  screens/                         # LEGADO: wrappers de compatibilidade/reexport
 ```
+
+## Convenção de organização (obrigatória)
+
+Para novas implementações, siga sempre organização por domínio em `src/features/<dominio>/`:
+
+- novas **telas**: `src/features/<dominio>/screens`;
+- novos **hooks**: `src/features/<dominio>/hooks`;
+- novos **services** (API, mocks, adapters): `src/features/<dominio>/services`;
+- novos **types** (tipos/interfaces do domínio): `src/features/<dominio>/types`.
+
+> `src/screens/*` está marcado como **legado** e deve ser usado apenas temporariamente para compatibilidade de imports antigos. Não é mais a fonte principal para criação de telas.
 
 ## Como rodar
 
