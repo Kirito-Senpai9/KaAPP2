@@ -1,0 +1,1 @@
+export { ComentariosPostagemScreen } from './ComentariosPostagemScreen';
