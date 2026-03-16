@@ -1,11 +1,11 @@
 import React, {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import {
   Image,
@@ -51,7 +51,7 @@ type Props = {
   autoFocusOnOpen?: boolean;
 };
 
-type ComposerContextValue = {
+type ComposerSnapshot = {
   bottomInset: number;
   clearReply: () => void;
   input: string;
@@ -64,21 +64,39 @@ type ComposerContextValue = {
   replyingTo: CommentItem | null;
 };
 
-const ComposerContext = createContext<ComposerContextValue | null>(null);
+const composerSnapshotListeners = new Set<() => void>();
+let composerSnapshot: ComposerSnapshot | null = null;
 
-function useComposerContext() {
-  const value = useContext(ComposerContext);
+function getComposerSnapshot() {
+  return composerSnapshot;
+}
 
-  if (!value) {
-    throw new Error('Comments composer context is unavailable.');
-  }
+function subscribeToComposerSnapshot(listener: () => void) {
+  composerSnapshotListeners.add(listener);
 
-  return value;
+  return () => {
+    composerSnapshotListeners.delete(listener);
+  };
+}
+
+function setComposerSnapshot(nextSnapshot: ComposerSnapshot | null) {
+  composerSnapshot = nextSnapshot;
+  composerSnapshotListeners.forEach((listener) => listener());
 }
 
 function CommentsComposerFooter({
   animatedFooterPosition,
 }: BottomSheetFooterProps) {
+  const snapshot = useSyncExternalStore(
+    subscribeToComposerSnapshot,
+    getComposerSnapshot,
+    getComposerSnapshot
+  );
+
+  if (!snapshot) {
+    return null;
+  }
+
   const {
     bottomInset,
     clearReply,
@@ -90,7 +108,7 @@ function CommentsComposerFooter({
     onSendPress,
     onSendPressIn,
     replyingTo,
-  } = useComposerContext();
+  } = snapshot;
 
   return (
     <BottomSheetFooter animatedFooterPosition={animatedFooterPosition}>
@@ -300,6 +318,7 @@ export default function CommentsBottomSheet({
     isInputFocusedRef.current = false;
     clearRetainedFocus();
     clearPendingFocus();
+    setComposerSnapshot(null);
     Keyboard.dismiss();
     setReplyingTo(null);
     setExpandedThreads({});
@@ -362,7 +381,7 @@ export default function CommentsBottomSheet({
     }
   }, [clearRetainedFocus, ensureComposerFocused, input, replyingTo]);
 
-  const composerContextValue = useMemo<ComposerContextValue>(
+  const composerSnapshotValue = useMemo<ComposerSnapshot>(
     () => ({
       bottomInset: insets.bottom,
       clearReply,
@@ -387,9 +406,24 @@ export default function CommentsBottomSheet({
     ]
   );
 
+  useLayoutEffect(() => {
+    if (!visible || !post) {
+      setComposerSnapshot(null);
+      return;
+    }
+
+    setComposerSnapshot(composerSnapshotValue);
+  }, [composerSnapshotValue, post, visible]);
+
+  useEffect(
+    () => () => {
+      setComposerSnapshot(null);
+    },
+    []
+  );
+
   return (
-    <ComposerContext.Provider value={composerContextValue}>
-      <BottomSheetModal
+    <BottomSheetModal
         ref={modalRef}
         index={autoFocusOnOpen ? lastSnapIndex : 0}
         snapPoints={snapPoints}
@@ -416,7 +450,7 @@ export default function CommentsBottomSheet({
         handleIndicatorStyle={styles.grabHandle}
         backgroundStyle={styles.sheetBackground}
       >
-        <BottomSheetView style={styles.content}>
+      <BottomSheetView style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Comentarios • {totalComments}</Text>
             {!!post && <Text style={styles.headerSub}>Post de {post.user}</Text>}
@@ -480,9 +514,8 @@ export default function CommentsBottomSheet({
               );
             }}
           />
-        </BottomSheetView>
-      </BottomSheetModal>
-    </ComposerContext.Provider>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
