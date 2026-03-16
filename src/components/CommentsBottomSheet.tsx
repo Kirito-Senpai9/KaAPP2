@@ -1,16 +1,11 @@
-import React, {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Dimensions,
   Image,
   InteractionManager,
   Keyboard,
+  type KeyboardEvent,
+  type LayoutChangeEvent,
   ListRenderItemInfo,
   Platform,
   Pressable,
@@ -22,12 +17,10 @@ import {
 import {
   BottomSheetBackdrop,
   BottomSheetFlatList,
-  BottomSheetFooter,
   BottomSheetModal,
   BottomSheetTextInput,
   BottomSheetView,
   type BottomSheetBackdropProps,
-  type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,109 +44,8 @@ type Props = {
   autoFocusOnOpen?: boolean;
 };
 
-type ComposerSnapshot = {
-  bottomInset: number;
-  clearReply: () => void;
-  input: string;
-  inputRef: React.RefObject<React.ComponentRef<typeof BottomSheetTextInput> | null>;
-  onChangeText: (value: string) => void;
-  onInputBlur: () => void;
-  onInputFocus: () => void;
-  onSendPress: () => void;
-  onSendPressIn: () => void;
-  replyingTo: CommentItem | null;
-};
-
-const composerSnapshotListeners = new Set<() => void>();
-let composerSnapshot: ComposerSnapshot | null = null;
-
-function getComposerSnapshot() {
-  return composerSnapshot;
-}
-
-function subscribeToComposerSnapshot(listener: () => void) {
-  composerSnapshotListeners.add(listener);
-
-  return () => {
-    composerSnapshotListeners.delete(listener);
-  };
-}
-
-function setComposerSnapshot(nextSnapshot: ComposerSnapshot | null) {
-  composerSnapshot = nextSnapshot;
-  composerSnapshotListeners.forEach((listener) => listener());
-}
-
-function CommentsComposerFooter({
-  animatedFooterPosition,
-}: BottomSheetFooterProps) {
-  const snapshot = useSyncExternalStore(
-    subscribeToComposerSnapshot,
-    getComposerSnapshot,
-    getComposerSnapshot
-  );
-
-  if (!snapshot) {
-    return null;
-  }
-
-  const {
-    bottomInset,
-    clearReply,
-    input,
-    inputRef,
-    onChangeText,
-    onInputBlur,
-    onInputFocus,
-    onSendPress,
-    onSendPressIn,
-    replyingTo,
-  } = snapshot;
-
-  return (
-    <BottomSheetFooter animatedFooterPosition={animatedFooterPosition}>
-      <View style={[styles.composerWrap, { paddingBottom: bottomInset + 8 }]}>
-        {!!replyingTo && (
-          <View style={styles.replyBadge}>
-            <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
-            <Pressable onPress={clearReply}>
-              <Ionicons name="close" size={16} color="#E4E8FF" />
-            </Pressable>
-          </View>
-        )}
-
-        <View style={styles.composerRow}>
-          <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
-          <BottomSheetTextInput
-            ref={inputRef}
-            value={input}
-            onChangeText={onChangeText}
-            placeholder={
-              replyingTo
-                ? `Responder ${replyingTo.user}`
-                : 'Escreva um comentario...'
-            }
-            placeholderTextColor="#8B94C4"
-            onFocus={onInputFocus}
-            onBlur={onInputBlur}
-            blurOnSubmit={false}
-            style={styles.input}
-          />
-          <TouchableOpacity style={styles.iconBtn}>
-            <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.sendBtn}
-            onPressIn={onSendPressIn}
-            onPress={onSendPress}
-          >
-            <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </BottomSheetFooter>
-  );
-}
+const getHiddenKeyboardTop = () =>
+  Math.max(Dimensions.get('screen').height, Dimensions.get('window').height);
 
 export default function CommentsBottomSheet({
   visible,
@@ -163,16 +55,25 @@ export default function CommentsBottomSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
+  const sheetBodyRef = useRef<View>(null);
   const inputRef = useRef<React.ComponentRef<typeof BottomSheetTextInput>>(null);
   const focusTaskRef = useRef<ReturnType<
     typeof InteractionManager.runAfterInteractions
   > | null>(null);
   const focusFrameRef = useRef<number | null>(null);
   const focusRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const measureTaskRef = useRef<ReturnType<
+    typeof InteractionManager.runAfterInteractions
+  > | null>(null);
+  const measureFrameRef = useRef<number | null>(null);
   const shouldAutoFocusRef = useRef(false);
   const isInputFocusedRef = useRef(false);
   const isAtFinalSnapRef = useRef(false);
   const retainFocusOnActionRef = useRef(false);
+  const keyboardStateRef = useRef({
+    visible: false,
+    top: getHiddenKeyboardTop(),
+  });
   const snapPoints = useMemo(() => ['50%', '85%', '100%'], []);
   const lastSnapIndex = snapPoints.length - 1;
 
@@ -182,6 +83,9 @@ export default function CommentsBottomSheet({
     {}
   );
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [composerBottomOffset, setComposerBottomOffset] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const totalComments = useMemo(
     () =>
@@ -205,9 +109,67 @@ export default function CommentsBottomSheet({
     }
   }, []);
 
+  const clearPendingMeasurement = useCallback(() => {
+    measureTaskRef.current?.cancel();
+    measureTaskRef.current = null;
+
+    if (measureFrameRef.current !== null) {
+      cancelAnimationFrame(measureFrameRef.current);
+      measureFrameRef.current = null;
+    }
+  }, []);
+
   const clearRetainedFocus = useCallback(() => {
     retainFocusOnActionRef.current = false;
   }, []);
+
+  const updateComposerOffset = useCallback(() => {
+    if (!visible || !post) {
+      setComposerBottomOffset(0);
+      return;
+    }
+
+    const keyboardState = keyboardStateRef.current;
+    if (!keyboardState.visible) {
+      setComposerBottomOffset(0);
+      return;
+    }
+
+    sheetBodyRef.current?.measureInWindow((_x, y, _width, height) => {
+      if (!height) {
+        return;
+      }
+
+      const sheetBottom = y + height;
+      const nextOffset = Math.max(0, sheetBottom - keyboardState.top);
+
+      setComposerBottomOffset((currentOffset) =>
+        Math.abs(currentOffset - nextOffset) < 1 ? currentOffset : nextOffset
+      );
+    });
+  }, [post, visible]);
+
+  const scheduleComposerMeasurement = useCallback(() => {
+    clearPendingMeasurement();
+
+    if (!visible || !post) {
+      setComposerBottomOffset(0);
+      return;
+    }
+
+    const measureOnNextFrame = () => {
+      measureFrameRef.current = requestAnimationFrame(() => {
+        measureFrameRef.current = null;
+        updateComposerOffset();
+      });
+    };
+
+    measureOnNextFrame();
+    measureTaskRef.current = InteractionManager.runAfterInteractions(() => {
+      measureTaskRef.current = null;
+      measureOnNextFrame();
+    });
+  }, [clearPendingMeasurement, post, updateComposerOffset, visible]);
 
   const scheduleComposerFocus = useCallback(
     (attempt = 0, force = false) => {
@@ -220,6 +182,7 @@ export default function CommentsBottomSheet({
         focusFrameRef.current = requestAnimationFrame(() => {
           inputRef.current?.focus();
           focusFrameRef.current = null;
+          scheduleComposerMeasurement();
 
           if (
             !isInputFocusedRef.current &&
@@ -237,7 +200,7 @@ export default function CommentsBottomSheet({
         });
       });
     },
-    [clearPendingFocus, post, visible]
+    [clearPendingFocus, post, scheduleComposerMeasurement, visible]
   );
 
   const ensureComposerFocused = useCallback(
@@ -255,6 +218,15 @@ export default function CommentsBottomSheet({
     [lastSnapIndex, post, scheduleComposerFocus, visible]
   );
 
+  const resetKeyboardState = useCallback(() => {
+    keyboardStateRef.current = {
+      visible: false,
+      top: getHiddenKeyboardTop(),
+    };
+    setIsKeyboardVisible(false);
+    setComposerBottomOffset(0);
+  }, []);
+
   useEffect(() => {
     if (visible && post) {
       shouldAutoFocusRef.current = autoFocusOnOpen;
@@ -268,25 +240,85 @@ export default function CommentsBottomSheet({
     isInputFocusedRef.current = false;
     clearRetainedFocus();
     clearPendingFocus();
+    clearPendingMeasurement();
+    resetKeyboardState();
     modalRef.current?.dismiss();
   }, [
     autoFocusOnOpen,
     clearPendingFocus,
+    clearPendingMeasurement,
     clearRetainedFocus,
     post,
+    resetKeyboardState,
     visible,
   ]);
 
-  useEffect(() => () => clearPendingFocus(), [clearPendingFocus]);
+  useEffect(
+    () => () => {
+      clearPendingFocus();
+      clearPendingMeasurement();
+    },
+    [clearPendingFocus, clearPendingMeasurement]
+  );
+
+  useEffect(() => {
+    const handleKeyboardShow = (event: KeyboardEvent) => {
+      keyboardStateRef.current = {
+        visible: true,
+        top: event.endCoordinates.screenY,
+      };
+      setIsKeyboardVisible(true);
+      scheduleComposerMeasurement();
+    };
+
+    const handleKeyboardHide = () => {
+      resetKeyboardState();
+      scheduleComposerMeasurement();
+    };
+
+    const subscriptions =
+      Platform.OS === 'ios'
+        ? [
+            Keyboard.addListener('keyboardWillShow', handleKeyboardShow),
+            Keyboard.addListener('keyboardWillHide', handleKeyboardHide),
+            Keyboard.addListener('keyboardDidShow', handleKeyboardShow),
+            Keyboard.addListener('keyboardDidHide', handleKeyboardHide),
+          ]
+        : [
+            Keyboard.addListener('keyboardDidShow', handleKeyboardShow),
+            Keyboard.addListener('keyboardDidHide', handleKeyboardHide),
+          ];
+
+    return () => {
+      subscriptions.forEach((subscription) => subscription.remove());
+    };
+  }, [resetKeyboardState, scheduleComposerMeasurement]);
 
   const handleSheetChange = useCallback(
     (index: number) => {
       isAtFinalSnapRef.current = index === lastSnapIndex;
+      scheduleComposerMeasurement();
+
       if (!shouldAutoFocusRef.current || !isAtFinalSnapRef.current) return;
 
       scheduleComposerFocus(0, true);
     },
-    [lastSnapIndex, scheduleComposerFocus]
+    [lastSnapIndex, scheduleComposerFocus, scheduleComposerMeasurement]
+  );
+
+  const handleSheetBodyLayout = useCallback(() => {
+    scheduleComposerMeasurement();
+  }, [scheduleComposerMeasurement]);
+
+  const handleComposerLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextHeight = event.nativeEvent.layout.height;
+      setComposerHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight
+      );
+      scheduleComposerMeasurement();
+    },
+    [scheduleComposerMeasurement]
   );
 
   const handleScrollBeginDrag = useCallback(() => {
@@ -302,15 +334,19 @@ export default function CommentsBottomSheet({
     shouldAutoFocusRef.current = false;
     clearRetainedFocus();
     clearPendingFocus();
-  }, [clearPendingFocus, clearRetainedFocus]);
+    scheduleComposerMeasurement();
+  }, [clearPendingFocus, clearRetainedFocus, scheduleComposerMeasurement]);
 
   const handleInputBlur = useCallback(() => {
     isInputFocusedRef.current = false;
 
     if (retainFocusOnActionRef.current) {
       ensureComposerFocused(true);
+      return;
     }
-  }, [ensureComposerFocused]);
+
+    scheduleComposerMeasurement();
+  }, [ensureComposerFocused, scheduleComposerMeasurement]);
 
   const handleDismiss = useCallback(() => {
     shouldAutoFocusRef.current = false;
@@ -318,26 +354,36 @@ export default function CommentsBottomSheet({
     isInputFocusedRef.current = false;
     clearRetainedFocus();
     clearPendingFocus();
-    setComposerSnapshot(null);
+    clearPendingMeasurement();
+    resetKeyboardState();
     Keyboard.dismiss();
     setReplyingTo(null);
     setExpandedThreads({});
     setInput('');
+    setComposerHeight(0);
     inputRef.current?.blur();
     onClose();
-  }, [clearPendingFocus, clearRetainedFocus, onClose]);
+  }, [
+    clearPendingFocus,
+    clearPendingMeasurement,
+    clearRetainedFocus,
+    onClose,
+    resetKeyboardState,
+  ]);
 
   const clearReply = useCallback(() => {
     setReplyingTo(null);
-  }, []);
+    scheduleComposerMeasurement();
+  }, [scheduleComposerMeasurement]);
 
   const handleReply = useCallback(
     (comment: CommentItem) => {
       retainFocusOnActionRef.current = true;
       setReplyingTo(comment);
       ensureComposerFocused(true);
+      scheduleComposerMeasurement();
     },
-    [ensureComposerFocused]
+    [ensureComposerFocused, scheduleComposerMeasurement]
   );
 
   const handleSendPressIn = useCallback(() => {
@@ -353,6 +399,7 @@ export default function CommentsBottomSheet({
       if (shouldRestoreFocus) {
         ensureComposerFocused(true);
       }
+      scheduleComposerMeasurement();
       return;
     }
 
@@ -379,80 +426,65 @@ export default function CommentsBottomSheet({
     } else {
       clearRetainedFocus();
     }
-  }, [clearRetainedFocus, ensureComposerFocused, input, replyingTo]);
 
-  const composerSnapshotValue = useMemo<ComposerSnapshot>(
-    () => ({
-      bottomInset: insets.bottom,
-      clearReply,
-      input,
-      inputRef,
-      onChangeText: setInput,
-      onInputBlur: handleInputBlur,
-      onInputFocus: handleInputFocus,
-      onSendPress: sendComment,
-      onSendPressIn: handleSendPressIn,
-      replyingTo,
-    }),
-    [
-      clearReply,
-      handleInputBlur,
-      handleInputFocus,
-      handleSendPressIn,
-      insets.bottom,
-      input,
-      replyingTo,
-      sendComment,
-    ]
-  );
+    scheduleComposerMeasurement();
+  }, [
+    clearRetainedFocus,
+    ensureComposerFocused,
+    input,
+    replyingTo,
+    scheduleComposerMeasurement,
+  ]);
 
-  useLayoutEffect(() => {
-    if (!visible || !post) {
-      setComposerSnapshot(null);
-      return;
-    }
-
-    setComposerSnapshot(composerSnapshotValue);
-  }, [composerSnapshotValue, post, visible]);
-
-  useEffect(
-    () => () => {
-      setComposerSnapshot(null);
-    },
-    []
+  const composerPaddingBottom = isKeyboardVisible ? 8 : insets.bottom + 8;
+  const composerReservedSpace =
+    composerHeight > 0 ? composerHeight : 84 + composerPaddingBottom;
+  const listContentStyle = useMemo(
+    () => [
+      styles.listContent,
+      {
+        paddingBottom: composerReservedSpace + 12,
+      },
+    ],
+    [composerReservedSpace]
   );
 
   return (
     <BottomSheetModal
-        ref={modalRef}
-        index={autoFocusOnOpen ? lastSnapIndex : 0}
-        snapPoints={snapPoints}
-        topInset={insets.top}
-        bottomInset={insets.bottom}
-        footerComponent={CommentsComposerFooter}
-        onDismiss={handleDismiss}
-        onChange={handleSheetChange}
-        enablePanDownToClose
-        enableContentPanningGesture
-        enableHandlePanningGesture
-        enableBlurKeyboardOnGesture={false}
-        keyboardBehavior="interactive"
-        keyboardBlurBehavior="restore"
-        android_keyboardInputMode="adjustResize"
-        backdropComponent={(props: BottomSheetBackdropProps) => (
-          <BottomSheetBackdrop
-            {...props}
-            disappearsOnIndex={-1}
-            appearsOnIndex={0}
-            pressBehavior="close"
-          />
-        )}
-        handleIndicatorStyle={styles.grabHandle}
-        backgroundStyle={styles.sheetBackground}
-      >
+      ref={modalRef}
+      index={autoFocusOnOpen ? lastSnapIndex : 0}
+      snapPoints={snapPoints}
+      topInset={insets.top}
+      bottomInset={insets.bottom}
+      onDismiss={handleDismiss}
+      onChange={handleSheetChange}
+      enablePanDownToClose
+      enableContentPanningGesture
+      enableHandlePanningGesture
+      enableBlurKeyboardOnGesture={false}
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
+      backdropComponent={(props: BottomSheetBackdropProps) => (
+        <BottomSheetBackdrop
+          {...props}
+          disappearsOnIndex={-1}
+          appearsOnIndex={0}
+          pressBehavior="close"
+        />
+      )}
+      handleIndicatorStyle={styles.grabHandle}
+      backgroundStyle={styles.sheetBackground}
+    >
       <BottomSheetView style={styles.content}>
+        <View
+          ref={sheetBodyRef}
+          collapsable={false}
+          onLayout={handleSheetBodyLayout}
+          style={styles.sheetBody}
+        >
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Comentarios • {totalComments}</Text>
+            <Text style={styles.headerTitle}>Comentarios - {totalComments}</Text>
             {!!post && <Text style={styles.headerSub}>Post de {post.user}</Text>}
           </View>
 
@@ -460,10 +492,9 @@ export default function CommentsBottomSheet({
             data={comments}
             keyExtractor={(item: CommentItem) => item.id}
             style={styles.list}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={listContentStyle}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            enableFooterMarginAdjustment
             onScrollBeginDrag={handleScrollBeginDrag}
             renderItem={({ item }: ListRenderItemInfo<CommentItem>) => {
               const repliesCount = countRepliesDeep(item.replies);
@@ -514,6 +545,67 @@ export default function CommentsBottomSheet({
               );
             }}
           />
+
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.composerOverlay,
+              {
+                bottom: composerBottomOffset,
+              },
+            ]}
+          >
+            <View
+              onLayout={handleComposerLayout}
+              style={[
+                styles.composerWrap,
+                {
+                  paddingBottom: composerPaddingBottom,
+                },
+              ]}
+            >
+              {!!replyingTo && (
+                <View style={styles.replyBadge}>
+                  <Text style={styles.replyBadgeText}>
+                    Respondendo {replyingTo.user}
+                  </Text>
+                  <Pressable onPress={clearReply}>
+                    <Ionicons name="close" size={16} color="#E4E8FF" />
+                  </Pressable>
+                </View>
+              )}
+
+              <View style={styles.composerRow}>
+                <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
+                <BottomSheetTextInput
+                  ref={inputRef}
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder={
+                    replyingTo
+                      ? `Responder ${replyingTo.user}`
+                      : 'Escreva um comentario...'
+                  }
+                  placeholderTextColor="#8B94C4"
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
+                  blurOnSubmit={false}
+                  style={styles.input}
+                />
+                <TouchableOpacity style={styles.iconBtn}>
+                  <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPressIn={handleSendPressIn}
+                  onPress={sendComment}
+                >
+                  <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
       </BottomSheetView>
     </BottomSheetModal>
   );
@@ -585,6 +677,13 @@ const styles = StyleSheet.create({
     borderRadius: 99,
     backgroundColor: 'rgba(220,227,255,0.45)',
   },
+  content: {
+    flex: 1,
+  },
+  sheetBody: {
+    flex: 1,
+    position: 'relative',
+  },
   header: {
     paddingHorizontal: 14,
     paddingTop: 12,
@@ -592,42 +691,115 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.12)',
   },
-  headerTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  headerSub: { color: '#98A1CE', fontSize: 12, marginTop: 2 },
-  content: { flex: 1 },
-  list: { flex: 1 },
-  listContent: { paddingHorizontal: 14, paddingTop: 2, paddingBottom: 12 },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  headerSub: {
+    color: '#98A1CE',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+  },
   block: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  commentRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  replyRow: { marginLeft: 26, marginTop: 8, opacity: 0.95 },
-  avatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
-  replyAvatar: { width: 30, height: 30, borderRadius: 15 },
-  commentBody: { flex: 1 },
+  commentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  replyRow: {
+    marginLeft: 26,
+    marginTop: 8,
+    opacity: 0.95,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+  },
+  replyAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  commentBody: {
+    flex: 1,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  user: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  replyUser: { fontSize: 13 },
-  time: { color: '#96A2D9', fontSize: 11 },
-  text: { color: '#E6E9FA', fontSize: 14, lineHeight: 20, marginTop: 4 },
-  replyText: { fontSize: 13, lineHeight: 18 },
+  user: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  replyUser: {
+    fontSize: 13,
+  },
+  time: {
+    color: '#96A2D9',
+    fontSize: 11,
+  },
+  text: {
+    color: '#E6E9FA',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  replyText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   rowActions: {
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  actionGhost: { color: '#AEB4D6', fontSize: 12, fontWeight: '600' },
-  likeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  likeText: { color: '#AEB4D6', fontSize: 11, fontWeight: '600' },
-  repliesBtn: { marginLeft: 46, marginTop: 8, alignSelf: 'flex-start' },
-  repliesBtnText: { color: '#9AA7E2', fontSize: 12, fontWeight: '700' },
+  actionGhost: {
+    color: '#AEB4D6',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  likeWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  likeText: {
+    color: '#AEB4D6',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  repliesBtn: {
+    marginLeft: 46,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  repliesBtnText: {
+    color: '#9AA7E2',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  composerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
   composerWrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.1)',
@@ -647,7 +819,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  replyBadgeText: { color: '#E8ECFF', fontSize: 12, fontWeight: '600' },
+  replyBadgeText: {
+    color: '#E8ECFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   composerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -658,7 +834,12 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 8,
   },
-  meAvatar: { width: 30, height: 30, borderRadius: 15, marginRight: 6 },
+  meAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 6,
+  },
   input: {
     flex: 1,
     color: '#FFFFFF',
@@ -666,7 +847,12 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     paddingHorizontal: 6,
   },
-  iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sendBtn: {
     width: 34,
     height: 34,
