@@ -1,1 +1,1 @@
-export { default as ComunidadeScreen } from './ComunidadeScreen';
+export { default as ComunidadeScreen } from '@/features/community/screens/ComunidadeScreen';

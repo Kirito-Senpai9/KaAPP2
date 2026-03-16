@@ -6,7 +6,7 @@ import { useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import KachanTabs from '@/navigation/KachanTabs';
-import { TelaLogin } from '@/features/auth/screens';
+import { TelaLoginScreen } from '@/features/auth/screens';
 import { StoryViewerScreen } from '@/features/stories/screens';
 import { CriarStoriesScreen } from '@/features/stories/screens';
 import { CriarPostagemScreen, LiveSetupScreen } from '@/features/create/screens';
@@ -35,7 +35,7 @@ export default function App() {
               gestureEnabled: true,
             }}
           >
-            <Stack.Screen name="TelaLogin" component={TelaLogin} />
+            <Stack.Screen name="TelaLogin" component={TelaLoginScreen} />
             <Stack.Screen name="RootTabs" component={KachanTabs} />
             <Stack.Screen name="StoryViewer" component={StoryViewerScreen} />
             <Stack.Screen name="ComentariosPostagem" component={ComentariosPostagem} />

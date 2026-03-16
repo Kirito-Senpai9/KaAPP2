@@ -20,7 +20,7 @@ const { width } = Dimensions.get("window");
 // mesma altura que você usa na sua tab bar
 const TAB_BAR_HEIGHT = 86;
 
-export default function CreateScreen() {
+export default function CriarScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const OptionCard = ({
     icon,
