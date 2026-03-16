@@ -6,12 +6,12 @@ import { useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import KachanTabs from '@/navigation/KachanTabs';
-import TelaLogin from '@/screens/TelaLogin';
-import StoryViewer from '@/screens/StoryViewer';
-import CriarStories from '@/screens/CriarStories';
-import CriarPostagem from '@/screens/CriarPostagem';
-import CriarShorts from '@/screens/CriarShorts';
-import LiveSetup from '@/screens/LiveSetup';
+import { TelaLogin } from '@/features/auth/screens';
+import { StoryViewerScreen } from '@/features/stories/screens';
+import { CriarStoriesScreen } from '@/features/stories/screens';
+import { CriarPostagemScreen, LiveSetupScreen } from '@/features/create/screens';
+import { CriarShortsScreen } from '@/features/shorts/screens';
+
 import ComentariosPostagem from '@/screens/ComentariosPostagem';
 import { RootStackParamList } from '@/navigation/types';
 
@@ -37,12 +37,12 @@ export default function App() {
           >
             <Stack.Screen name="TelaLogin" component={TelaLogin} />
             <Stack.Screen name="RootTabs" component={KachanTabs} />
-            <Stack.Screen name="StoryViewer" component={StoryViewer} />
+            <Stack.Screen name="StoryViewer" component={StoryViewerScreen} />
             <Stack.Screen name="ComentariosPostagem" component={ComentariosPostagem} />
-            <Stack.Screen name="CriarStories" component={CriarStories} />
-            <Stack.Screen name="CriarPostagem" component={CriarPostagem} />
-            <Stack.Screen name="CriarShorts" component={CriarShorts} />
-            <Stack.Screen name="LiveSetup" component={LiveSetup} />
+            <Stack.Screen name="CriarStories" component={CriarStoriesScreen} />
+            <Stack.Screen name="CriarPostagem" component={CriarPostagemScreen} />
+            <Stack.Screen name="CriarShorts" component={CriarShortsScreen} />
+            <Stack.Screen name="LiveSetup" component={LiveSetupScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       </BottomSheetModalProvider>

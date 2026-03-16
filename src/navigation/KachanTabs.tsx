@@ -13,11 +13,11 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import Telainicial from '../screens/Telainicial';
-import Shorts from '../screens/Shorts';
-import Comunidade from '../screens/Comunidade';
-import Perfil from '../screens/Perfil';
-import Criar from '../screens/Criar';
+import { HomeScreen } from '@/features/feed/screens';
+import { ShortsScreen } from '@/features/shorts/screens';
+import { ComunidadeScreen } from '@/features/community/screens';
+import { PerfilScreen } from '@/features/profile/screens';
+import { CriarScreen } from '@/features/create/screens';
 import type { KachanTabParamList } from '@/navigation/types';
 
 type RouteName = keyof KachanTabParamList;
@@ -188,11 +188,11 @@ export default function KachanTabs() {
       }}
       tabBar={(props) => <KachanTabBar {...props} />}
     >
-      <Tab.Screen name="Home" component={Telainicial} />
-      <Tab.Screen name="Shorts" component={Shorts} />
-      <Tab.Screen name="Criar" component={Criar} />
-      <Tab.Screen name="Comunidade" component={Comunidade} />
-      <Tab.Screen name="Perfil" component={Perfil} />
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Shorts" component={ShortsScreen} />
+      <Tab.Screen name="Criar" component={CriarScreen} />
+      <Tab.Screen name="Comunidade" component={ComunidadeScreen} />
+      <Tab.Screen name="Perfil" component={PerfilScreen} />
     </Tab.Navigator>
   );
 }
