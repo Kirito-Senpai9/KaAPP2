@@ -8,7 +8,11 @@
     "web": "expo start --web",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tools:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-local-tools.ps1",
+    "python:local": "powershell -ExecutionPolicy Bypass -File scripts/python.ps1",
+    "ffmpeg:local": "powershell -ExecutionPolicy Bypass -File scripts/ffmpeg.ps1",
+    "ffprobe:local": "powershell -ExecutionPolicy Bypass -File scripts/ffprobe.ps1"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

@@ -3,6 +3,7 @@ import {
   Image,
   InteractionManager,
   Keyboard,
+  LayoutChangeEvent,
   ListRenderItemInfo,
   Platform,
   Pressable,
@@ -45,7 +46,10 @@ export default function CommentsBottomSheet({
   const inputRef = useRef<React.ComponentRef<typeof BottomSheetTextInput>>(null);
   const focusTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
   const focusFrameRef = useRef<number | null>(null);
+  const focusRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoFocusRef = useRef(false);
+  const isInputFocusedRef = useRef(false);
+  const isAtFinalSnapRef = useRef(false);
   const snapPoints = useMemo(() => ['50%', '85%', '100%'], []);
   const lastSnapIndex = snapPoints.length - 1;
 
@@ -53,11 +57,13 @@ export default function CommentsBottomSheet({
   const [input, setInput] = useState('');
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
 
   const totalComments = useMemo(
     () => comments.length + comments.reduce((acc, item) => acc + countRepliesDeep(item.replies), 0),
     [comments]
   );
+  const composerBottomInset = composerHeight > 0 ? composerHeight + 12 : insets.bottom + 88;
 
   const clearPendingFocus = useCallback(() => {
     focusTaskRef.current?.cancel();
@@ -67,26 +73,46 @@ export default function CommentsBottomSheet({
       cancelAnimationFrame(focusFrameRef.current);
       focusFrameRef.current = null;
     }
+
+    if (focusRetryTimeoutRef.current !== null) {
+      clearTimeout(focusRetryTimeoutRef.current);
+      focusRetryTimeoutRef.current = null;
+    }
   }, []);
 
-  const focusComposer = useCallback(() => {
-    clearPendingFocus();
+  const focusComposer = useCallback((attempt = 0, force = false) => {
+    if (!visible || !post || !isAtFinalSnapRef.current) return;
+    if (!force && isInputFocusedRef.current) return;
+    if (focusTaskRef.current || focusFrameRef.current) return;
+
     focusTaskRef.current = InteractionManager.runAfterInteractions(() => {
+      focusTaskRef.current = null;
       focusFrameRef.current = requestAnimationFrame(() => {
         inputRef.current?.focus();
         focusFrameRef.current = null;
+
+        if (!isInputFocusedRef.current && attempt < 4 && visible && post && isAtFinalSnapRef.current) {
+          const delay = 70 + attempt * 45;
+          focusRetryTimeoutRef.current = setTimeout(() => {
+            focusRetryTimeoutRef.current = null;
+            focusComposer(attempt + 1, true);
+          }, delay);
+        }
       });
     });
-  }, [clearPendingFocus]);
+  }, [post, visible]);
 
   useEffect(() => {
     if (visible && post) {
       shouldAutoFocusRef.current = autoFocusOnOpen;
+      isAtFinalSnapRef.current = false;
       modalRef.current?.present();
       return;
     }
 
     shouldAutoFocusRef.current = false;
+    isAtFinalSnapRef.current = false;
+    isInputFocusedRef.current = false;
     clearPendingFocus();
     modalRef.current?.dismiss();
   }, [autoFocusOnOpen, clearPendingFocus, post, visible]);
@@ -94,10 +120,10 @@ export default function CommentsBottomSheet({
   useEffect(() => () => clearPendingFocus(), [clearPendingFocus]);
 
   const handleSheetChange = useCallback((index: number) => {
-    if (!shouldAutoFocusRef.current || index !== lastSnapIndex) return;
+    isAtFinalSnapRef.current = index === lastSnapIndex;
+    if (!shouldAutoFocusRef.current || !isAtFinalSnapRef.current) return;
 
-    shouldAutoFocusRef.current = false;
-    focusComposer();
+    focusComposer(0, true);
   }, [focusComposer, lastSnapIndex]);
 
   const handleScrollBeginDrag = useCallback(() => {
@@ -106,8 +132,20 @@ export default function CommentsBottomSheet({
     Keyboard.dismiss();
   }, [clearPendingFocus]);
 
+  const handleInputFocus = useCallback(() => {
+    isInputFocusedRef.current = true;
+    shouldAutoFocusRef.current = false;
+    clearPendingFocus();
+  }, [clearPendingFocus]);
+
+  const handleInputBlur = useCallback(() => {
+    isInputFocusedRef.current = false;
+  }, []);
+
   const handleDismiss = useCallback(() => {
     shouldAutoFocusRef.current = false;
+    isAtFinalSnapRef.current = false;
+    isInputFocusedRef.current = false;
     clearPendingFocus();
     Keyboard.dismiss();
     setReplyingTo(null);
@@ -117,9 +155,20 @@ export default function CommentsBottomSheet({
     onClose();
   }, [clearPendingFocus, onClose]);
 
-  const sendComment = () => {
+  const handleReply = useCallback((comment: CommentItem) => {
+    setReplyingTo(comment);
+    focusComposer(0, true);
+  }, [focusComposer]);
+
+  const handleComposerLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+    setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+  }, []);
+
+  const sendComment = useCallback(() => {
     const message = input.trim();
     if (!message) return;
+    const shouldRestoreFocus = isInputFocusedRef.current;
 
     const newComment: CommentItem = {
       id: `${Date.now()}`,
@@ -138,7 +187,10 @@ export default function CommentsBottomSheet({
 
     setInput('');
     setReplyingTo(null);
-  };
+    if (shouldRestoreFocus) {
+      focusComposer(0, true);
+    }
+  }, [focusComposer, input, replyingTo]);
 
   return (
     <BottomSheetModal
@@ -151,10 +203,10 @@ export default function CommentsBottomSheet({
       enablePanDownToClose
       enableContentPanningGesture
       enableHandlePanningGesture
-      enableBlurKeyboardOnGesture
+      enableBlurKeyboardOnGesture={false}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
-      android_keyboardInputMode="adjustPan"
+      android_keyboardInputMode="adjustResize"
       backdropComponent={(props: BottomSheetBackdropProps) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" />}
       handleIndicatorStyle={styles.grabHandle}
       backgroundStyle={styles.sheetBackground}
@@ -169,7 +221,7 @@ export default function CommentsBottomSheet({
           data={comments}
           keyExtractor={(item: CommentItem) => item.id}
           style={styles.list}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: composerBottomInset }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onScrollBeginDrag={handleScrollBeginDrag}
@@ -183,7 +235,7 @@ export default function CommentsBottomSheet({
                   comment={item}
                   depth={0}
                   onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
-                  onReply={setReplyingTo}
+                  onReply={handleReply}
                 />
 
                 {repliesCount > 0 && (
@@ -207,7 +259,7 @@ export default function CommentsBottomSheet({
                       comment={reply}
                       depth={1}
                       onLike={(id) => setComments((prev) => toggleLikeById(prev, id))}
-                      onReply={setReplyingTo}
+                      onReply={handleReply}
                     />
                   ))}
               </View>
@@ -215,7 +267,10 @@ export default function CommentsBottomSheet({
           }}
         />
 
-        <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}>
+        <View
+          onLayout={handleComposerLayout}
+          style={[styles.composerWrap, styles.composerOverlay, { paddingBottom: insets.bottom + 8 }]}
+        >
           {!!replyingTo && (
             <View style={styles.replyBadge}>
               <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
@@ -233,6 +288,8 @@ export default function CommentsBottomSheet({
               onChangeText={setInput}
               placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
               placeholderTextColor="#8B94C4"
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
               style={styles.input}
             />
             <TouchableOpacity style={styles.iconBtn}>
@@ -312,9 +369,9 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   headerSub: { color: '#98A1CE', fontSize: 12, marginTop: 2 },
-  content: { flex: 1 },
+  content: { flex: 1, position: 'relative' },
   list: { flex: 1 },
-  listContent: { paddingHorizontal: 14, paddingBottom: 12 },
+  listContent: { paddingHorizontal: 14, paddingTop: 2 },
   block: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -343,6 +400,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     backgroundColor: 'rgba(12,15,34,0.98)',
+  },
+  composerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
   },
   replyBadge: {
     flexDirection: 'row',
