@@ -1,75 +1,83 @@
 # KaAPP2
 
-Aplicativo React Native (Expo) com navegação baseada em **uma única fonte de verdade** e organização por domínio em `src/features/*`.
+Aplicativo React Native (Expo) organizado por **feature-first architecture** em `src/features/*`, com tipagem de navegação centralizada.
 
 - `src/App.tsx` define o container de navegação e o `RootStack` principal.
-- `src/navigation/types.ts` define os tipos centrais de navegação (`RootStackParamList`).
+- `src/navigation/types.ts` define os tipos centrais (`RootStackParamList`).
 
 ## Arquitetura de navegação
 
-### `src/App.tsx` como composição das telas de feature
+### `src/App.tsx` como composition root
 
 `src/App.tsx` é o ponto de entrada da navegação. Ele:
 
 - monta o `NavigationContainer`;
 - cria o `RootStack` tipado com `RootStackParamList`;
-- compõe telas vindas de múltiplas features (ex.: `auth`, `stories`, `create`, `shorts`, `comments`), registrando-as como rotas do stack;
-- conecta a rota `RootTabs` (tabs principais) às demais rotas de fluxo modal/fullscreen.
+- registra telas importadas de features (`auth`, `feed`, `stories`, `create`, `shorts`, `comments`, `community`, `profile`);
+- conecta `RootTabs` com fluxos modal/fullscreen.
 
-Em outras palavras, o `App.tsx` **não é um diretório de telas**: ele orquestra telas de domínio que vivem em `src/features/*`.
+Ou seja, o `App.tsx` apenas **orquestra** as features; não é um diretório de telas.
 
 ### Papel de `src/navigation/*`
 
 A pasta `src/navigation/*` centraliza a infraestrutura de navegação:
 
-- `KachanTabs.tsx`: define o `BottomTabNavigator` customizado e o comportamento visual/funcional das abas (`Home`, `Shorts`, `Criar`, `Comunidade`, `Perfil`);
-- `types.ts`: define `RootStackParamList` e tipos auxiliares de navegação usados entre features.
+- `KachanTabs.tsx`: define o `BottomTabNavigator` customizado e o comportamento das abas (`Home`, `Shorts`, `Criar`, `Comunidade`, `Perfil`);
+- `types.ts`: define `RootStackParamList` e tipos auxiliares usados entre features.
 
-Isso mantém regras de roteamento e tipagem desacopladas da implementação de cada tela.
-
-## Estrutura relevante
+## Estrutura atual (fonte de verdade)
 
 ```txt
 src/
-  App.tsx                          # Composition root da navegação (NavigationContainer + RootStack)
+  App.tsx
   navigation/
-    KachanTabs.tsx                 # Configuração das tabs
-    types.ts                       # Tipos de navegação (RootStackParamList etc.)
+    KachanTabs.tsx
+    types.ts
   features/
     auth/
       screens/
-      hooks/
-      services/
-      types/
     feed/
       screens/
       hooks/
       services/
-      types/
     stories/
       screens/
       hooks/
       services/
-      types/
+    create/
+      screens/
+    shorts/
+      screens/
+      hooks/
+      services/
     comments/
       screens/
       hooks/
       services/
-      types/
-    ...                            # Demais domínios seguem o mesmo padrão
-  screens/                         # LEGADO: wrappers de compatibilidade/reexport
+      utils/
+    community/
+      screens/
+    profile/
+      screens/
 ```
 
-## Convenção de organização (obrigatória)
+## `src/screens/*` (somente legado)
 
-Para novas implementações, siga sempre organização por domínio em `src/features/<dominio>/`:
+A pasta `src/screens/*` existe apenas para **compatibilidade temporária** com imports antigos.
 
-- novas **telas**: `src/features/<dominio>/screens`;
-- novos **hooks**: `src/features/<dominio>/hooks`;
-- novos **services** (API, mocks, adapters): `src/features/<dominio>/services`;
-- novos **types** (tipos/interfaces do domínio): `src/features/<dominio>/types`.
+- Não criar telas novas em `src/screens/*`.
+- Não tratar `src/screens/*` como estrutura principal da aplicação.
+- Toda evolução deve acontecer em `src/features/<dominio>/*`.
 
-> `src/screens/*` está marcado como **legado** e deve ser usado apenas temporariamente para compatibilidade de imports antigos. Não é mais a fonte principal para criação de telas.
+## Convenção de organização
+
+Para novas implementações, seguir sempre `src/features/<dominio>/`:
+
+- **screens**: componentes de tela do domínio;
+- **hooks**: lógica reutilizável do domínio;
+- **services**: camada de acesso a dados/API/adapters;
+- **types**: tipos/interfaces locais do domínio;
+- **utils** (quando necessário): helpers internos do domínio.
 
 ## Como rodar
 
@@ -78,7 +86,7 @@ npm install
 npm start
 ```
 
-Para abrir em plataformas específicas:
+Plataformas específicas:
 
 ```bash
 npm run android
