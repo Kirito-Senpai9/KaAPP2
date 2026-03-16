@@ -1,1 +1,1 @@
-export { default as PerfilScreen } from './PerfilScreen';
+export { default as PerfilScreen } from '@/features/profile/screens/PerfilScreen';

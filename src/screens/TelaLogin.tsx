@@ -1,1 +1,1 @@
-export { default } from '@/features/auth/screens/TelaLogin';
+export { default } from '@/features/auth/screens/TelaLoginScreen';
