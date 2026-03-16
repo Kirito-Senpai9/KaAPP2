@@ -14,10 +14,12 @@ import {
 import {
   BottomSheetBackdrop,
   BottomSheetFlatList,
+  BottomSheetFooter,
   BottomSheetModal,
   BottomSheetTextInput,
   BottomSheetView,
   type BottomSheetBackdropProps,
+  type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,7 +34,6 @@ type Props = {
   onClose: () => void;
   autoFocusOnOpen?: boolean;
 };
-
 
 export default function CommentsBottomSheet({
   visible,
@@ -52,6 +53,7 @@ export default function CommentsBottomSheet({
   const [comments, setComments] = useState<CommentItem[]>(INITIAL_COMMENTS);
   const [input, setInput] = useState('');
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null);
 
   const totalComments = useMemo(
@@ -93,6 +95,19 @@ export default function CommentsBottomSheet({
 
   useEffect(() => () => clearPendingFocus(), [clearPendingFocus]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSubscription = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const handleSheetChange = useCallback((index: number) => {
     if (!shouldAutoFocusRef.current || index !== lastSnapIndex) return;
 
@@ -110,6 +125,7 @@ export default function CommentsBottomSheet({
     shouldAutoFocusRef.current = false;
     clearPendingFocus();
     Keyboard.dismiss();
+    setIsKeyboardVisible(false);
     setReplyingTo(null);
     setExpandedThreads({});
     setInput('');
@@ -117,10 +133,11 @@ export default function CommentsBottomSheet({
     onClose();
   }, [clearPendingFocus, onClose]);
 
-  const sendComment = () => {
+  const sendComment = useCallback(() => {
     const message = input.trim();
     if (!message) return;
 
+    const shouldKeepComposerOpen = isKeyboardVisible || !!inputRef.current?.isFocused?.();
     const newComment: CommentItem = {
       id: `${Date.now()}`,
       user: CURRENT_USER.name,
@@ -138,7 +155,49 @@ export default function CommentsBottomSheet({
 
     setInput('');
     setReplyingTo(null);
-  };
+
+    if (shouldKeepComposerOpen) {
+      focusComposer();
+    }
+  }, [focusComposer, input, isKeyboardVisible, replyingTo]);
+
+  const renderComposerFooter = useCallback((props: BottomSheetFooterProps) => (
+    <BottomSheetFooter {...props}>
+      <View
+        style={[
+          styles.composerWrap,
+          { paddingBottom: isKeyboardVisible ? 8 : insets.bottom + 8 },
+        ]}
+      >
+        {!!replyingTo && (
+          <View style={styles.replyBadge}>
+            <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
+            <Pressable onPress={() => setReplyingTo(null)}>
+              <Ionicons name="close" size={16} color="#E4E8FF" />
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.composerRow}>
+          <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
+          <BottomSheetTextInput
+            ref={inputRef}
+            value={input}
+            onChangeText={setInput}
+            placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um coment\u00E1rio...'}
+            placeholderTextColor="#8B94C4"
+            style={styles.input}
+          />
+          <TouchableOpacity style={styles.iconBtn}>
+            <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sendBtn} onPress={sendComment}>
+            <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </BottomSheetFooter>
+  ), [insets.bottom, input, isKeyboardVisible, replyingTo, sendComment]);
 
   return (
     <BottomSheetModal
@@ -155,13 +214,21 @@ export default function CommentsBottomSheet({
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustPan"
-      backdropComponent={(props: BottomSheetBackdropProps) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" />}
+      backdropComponent={(props: BottomSheetBackdropProps) => (
+        <BottomSheetBackdrop
+          {...props}
+          disappearsOnIndex={-1}
+          appearsOnIndex={0}
+          pressBehavior="close"
+        />
+      )}
       handleIndicatorStyle={styles.grabHandle}
       backgroundStyle={styles.sheetBackground}
+      footerComponent={renderComposerFooter}
     >
       <BottomSheetView style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Comentários • {totalComments}</Text>
+          <Text style={styles.headerTitle}>{`Coment\u00E1rios \u2022 ${totalComments}`}</Text>
           {!!post && <Text style={styles.headerSub}>Post de {post.user}</Text>}
         </View>
 
@@ -170,6 +237,7 @@ export default function CommentsBottomSheet({
           keyExtractor={(item: CommentItem) => item.id}
           style={styles.list}
           contentContainerStyle={styles.listContent}
+          enableFooterMarginAdjustment
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onScrollBeginDrag={handleScrollBeginDrag}
@@ -196,7 +264,9 @@ export default function CommentsBottomSheet({
                       }))
                     }
                   >
-                    <Text style={styles.repliesBtnText}>{expanded ? 'Ocultar respostas' : `Ver respostas (${repliesCount})`}</Text>
+                    <Text style={styles.repliesBtnText}>
+                      {expanded ? 'Ocultar respostas' : `Ver respostas (${repliesCount})`}
+                    </Text>
                   </Pressable>
                 )}
 
@@ -214,35 +284,6 @@ export default function CommentsBottomSheet({
             );
           }}
         />
-
-        <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}>
-          {!!replyingTo && (
-            <View style={styles.replyBadge}>
-              <Text style={styles.replyBadgeText}>Respondendo {replyingTo.user}</Text>
-              <Pressable onPress={() => setReplyingTo(null)}>
-                <Ionicons name="close" size={16} color="#E4E8FF" />
-              </Pressable>
-            </View>
-          )}
-
-          <View style={styles.composerRow}>
-            <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
-            <BottomSheetTextInput
-              ref={inputRef}
-              value={input}
-              onChangeText={setInput}
-              placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}
-              placeholderTextColor="#8B94C4"
-              style={styles.input}
-            />
-            <TouchableOpacity style={styles.iconBtn}>
-              <Ionicons name="happy-outline" size={20} color="#D6DBF6" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.sendBtn} onPress={sendComment}>
-              <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
-            </TouchableOpacity>
-          </View>
-        </View>
       </BottomSheetView>
     </BottomSheetModal>
   );
@@ -279,7 +320,11 @@ function CommentRow({
           </Pressable>
           <View style={styles.likeWrap}>
             <TouchableOpacity onPress={() => onLike(comment.id)}>
-              <Ionicons name={comment.liked ? 'heart' : 'heart-outline'} size={16} color={comment.liked ? '#FF658D' : '#AEB4D6'} />
+              <Ionicons
+                name={comment.liked ? 'heart' : 'heart-outline'}
+                size={16}
+                color={comment.liked ? '#FF658D' : '#AEB4D6'}
+              />
             </TouchableOpacity>
             <Text style={styles.likeText}>{comment.likes}</Text>
           </View>
@@ -331,7 +376,12 @@ const styles = StyleSheet.create({
   time: { color: '#96A2D9', fontSize: 11 },
   text: { color: '#E6E9FA', fontSize: 14, lineHeight: 20, marginTop: 4 },
   replyText: { fontSize: 13, lineHeight: 18 },
-  rowActions: { marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  rowActions: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   actionGhost: { color: '#AEB4D6', fontSize: 12, fontWeight: '600' },
   likeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   likeText: { color: '#AEB4D6', fontSize: 11, fontWeight: '600' },
@@ -368,7 +418,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   meAvatar: { width: 30, height: 30, borderRadius: 15, marginRight: 6 },
-  input: { flex: 1, color: '#FFFFFF', fontSize: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, paddingHorizontal: 6 },
+  input: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    paddingHorizontal: 6,
+  },
   iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   sendBtn: {
     width: 34,
