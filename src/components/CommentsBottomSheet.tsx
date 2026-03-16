@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
+  InteractionManager,
+  Keyboard,
   ListRenderItemInfo,
   Platform,
   Pressable,
@@ -28,13 +30,24 @@ type Props = {
   visible: boolean;
   post: PostPreview | null;
   onClose: () => void;
+  autoFocusOnOpen?: boolean;
 };
 
 
-export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
+export default function CommentsBottomSheet({
+  visible,
+  post,
+  onClose,
+  autoFocusOnOpen = false,
+}: Props) {
   const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
+  const inputRef = useRef<React.ComponentRef<typeof BottomSheetTextInput>>(null);
+  const focusTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+  const focusFrameRef = useRef<number | null>(null);
+  const shouldAutoFocusRef = useRef(false);
   const snapPoints = useMemo(() => ['50%', '85%', '100%'], []);
+  const lastSnapIndex = snapPoints.length - 1;
 
   const [comments, setComments] = useState<CommentItem[]>(INITIAL_COMMENTS);
   const [input, setInput] = useState('');
@@ -46,20 +59,63 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
     [comments]
   );
 
+  const clearPendingFocus = useCallback(() => {
+    focusTaskRef.current?.cancel();
+    focusTaskRef.current = null;
+
+    if (focusFrameRef.current !== null) {
+      cancelAnimationFrame(focusFrameRef.current);
+      focusFrameRef.current = null;
+    }
+  }, []);
+
+  const focusComposer = useCallback(() => {
+    clearPendingFocus();
+    focusTaskRef.current = InteractionManager.runAfterInteractions(() => {
+      focusFrameRef.current = requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        focusFrameRef.current = null;
+      });
+    });
+  }, [clearPendingFocus]);
+
   useEffect(() => {
     if (visible && post) {
+      shouldAutoFocusRef.current = autoFocusOnOpen;
       modalRef.current?.present();
       return;
     }
 
+    shouldAutoFocusRef.current = false;
+    clearPendingFocus();
     modalRef.current?.dismiss();
-  }, [post, visible]);
+  }, [autoFocusOnOpen, clearPendingFocus, post, visible]);
+
+  useEffect(() => () => clearPendingFocus(), [clearPendingFocus]);
+
+  const handleSheetChange = useCallback((index: number) => {
+    if (!shouldAutoFocusRef.current || index !== lastSnapIndex) return;
+
+    shouldAutoFocusRef.current = false;
+    focusComposer();
+  }, [focusComposer, lastSnapIndex]);
+
+  const handleScrollBeginDrag = useCallback(() => {
+    clearPendingFocus();
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }, [clearPendingFocus]);
 
   const handleDismiss = useCallback(() => {
+    shouldAutoFocusRef.current = false;
+    clearPendingFocus();
+    Keyboard.dismiss();
     setReplyingTo(null);
+    setExpandedThreads({});
     setInput('');
+    inputRef.current?.blur();
     onClose();
-  }, [onClose]);
+  }, [clearPendingFocus, onClose]);
 
   const sendComment = () => {
     const message = input.trim();
@@ -87,12 +143,15 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
   return (
     <BottomSheetModal
       ref={modalRef}
-      index={0}
+      index={autoFocusOnOpen ? lastSnapIndex : 0}
       snapPoints={snapPoints}
+      topInset={insets.top}
       onDismiss={handleDismiss}
+      onChange={handleSheetChange}
       enablePanDownToClose
       enableContentPanningGesture
       enableHandlePanningGesture
+      enableBlurKeyboardOnGesture
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustPan"
@@ -112,6 +171,8 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
           style={styles.list}
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          onScrollBeginDrag={handleScrollBeginDrag}
           renderItem={({ item }: ListRenderItemInfo<CommentItem>) => {
             const repliesCount = countRepliesDeep(item.replies);
             const expanded = !!expandedThreads[item.id];
@@ -167,6 +228,7 @@ export default function CommentsBottomSheet({ visible, post, onClose }: Props) {
           <View style={styles.composerRow}>
             <Image source={{ uri: CURRENT_USER.avatar }} style={styles.meAvatar} />
             <BottomSheetTextInput
+              ref={inputRef}
               value={input}
               onChangeText={setInput}
               placeholder={replyingTo ? `Responder ${replyingTo.user}` : 'Escreva um comentário...'}

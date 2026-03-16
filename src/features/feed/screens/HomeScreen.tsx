@@ -542,6 +542,7 @@ export default function Home() {
         visible={!!commentsPost}
         post={commentsPost ? { id: commentsPost.id, user: commentsPost.user, avatar: commentsPost.avatar, text: commentsPost.text } : null}
         onClose={closeComments}
+        autoFocusOnOpen
       />
 
       <Modal transparent visible={isMenuVisible} animationType="none" onRequestClose={() => closeContextMenu()}>
