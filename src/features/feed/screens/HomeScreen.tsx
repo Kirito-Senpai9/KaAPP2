@@ -11,7 +11,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/navigation/types';
 import { useFeed } from '@/features/feed/hooks/useFeed';
-import CommentsBottomSheet from '@/components/CommentsBottomSheet';
 import type { Post } from '@/types/social';
 
 const { width } = Dimensions.get('window');
@@ -76,11 +75,10 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
 type PostCardProps = {
   item: Post;
   isVisible: boolean;
-  onOpenComments: (post: Post) => void;
   onOpenContextMenu: (post: Post, anchor: MenuAnchor) => void;
 };
 
-const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpenContextMenu }: PostCardProps) {
+const PostCard = memo(function PostCard({ item, isVisible, onOpenContextMenu }: PostCardProps) {
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -91,8 +89,6 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpe
   const videoRef = useRef<Video | null>(null);
 
   const likeScale    = useRef(new Animated.Value(1)).current;
-  const commentScale = useRef(new Animated.Value(1)).current;
-  const commentShake = useRef(new Animated.Value(0)).current;
   const shareX       = useRef(new Animated.Value(0)).current;
   const repostScale  = useRef(new Animated.Value(1)).current;
   const saveRotateY  = useRef(new Animated.Value(0)).current;
@@ -104,22 +100,6 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpe
       Animated.spring(likeScale, { toValue: 1.25, useNativeDriver: true }),
       Animated.spring(likeScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
-  };
-
-  const handleComment = () => {
-    Animated.parallel([
-      Animated.sequence([
-        Animated.spring(commentScale, { toValue: 1.15, useNativeDriver: true }),
-        Animated.spring(commentScale, { toValue: 1, friction: 4, useNativeDriver: true }),
-      ]),
-      Animated.sequence([
-        Animated.timing(commentShake, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(commentShake, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(commentShake, { toValue: 0, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-      ]),
-    ]).start();
-
-    onOpenComments(item);
   };
 
   const handleShare = () => {
@@ -147,7 +127,6 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpe
 
   const shareTranslate = shareX.interpolate({ inputRange: [0, 1], outputRange: [0, 10] });
   const saveRotateDeg  = saveRotateY.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
-  const commentOffset  = commentShake.interpolate({ inputRange: [-1, 1], outputRange: [-3, 3] });
   const postTags = item.hashtags?.join(' ') ?? '';
 
   const isVideoPost = item.type === 'video-horizontal' || item.type === 'video-vertical';
@@ -303,20 +282,6 @@ const PostCard = memo(function PostCard({ item, isVisible, onOpenComments, onOpe
             <Text style={styles.actionCount}>{formatCount(item.likes + (liked ? 1 : 0))}</Text>
           </Animated.View>
 
-          <Animated.View style={[styles.actionItem, { transform: [{ scale: commentScale }, { translateX: commentOffset }] }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={handleComment}
-              activeOpacity={0.8}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Comentar"
-            >
-              <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
-            </TouchableOpacity>
-            <Text style={styles.actionCount}>{formatCount(item.comments)}</Text>
-          </Animated.View>
-
           <Animated.View style={[styles.actionItem, { transform: [{ scale: repostScale }] }]}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -394,16 +359,6 @@ export default function Home() {
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
 
-  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
-
-  const openComments = useCallback((post: Post) => {
-    setCommentsPost(post);
-  }, []);
-
-  const closeComments = useCallback(() => {
-    setCommentsPost(null);
-  }, []);
-
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
     menuOpacity.setValue(0);
     menuScale.setValue(0.95);
@@ -429,17 +384,6 @@ export default function Home() {
 
     return () => subscription.remove();
   }, [closeContextMenu, isMenuVisible]);
-
-  useEffect(() => {
-    if (!commentsPost) return;
-
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeComments();
-      return true;
-    });
-
-    return () => subscription.remove();
-  }, [closeComments, commentsPost]);
 
   const menuPosition = useMemo(() => {
     if (!menuData) return { top: 0, left: 0 };
@@ -486,7 +430,6 @@ export default function Home() {
       <PostCard
         item={item}
         isVisible={visiblePostIds.includes(item.id)}
-        onOpenComments={openComments}
         onOpenContextMenu={openContextMenu}
       />
     ),
@@ -538,12 +481,7 @@ export default function Home() {
         viewabilityConfig={viewabilityConfig}
       />
 
-      <CommentsBottomSheet
-        visible={!!commentsPost}
-        post={commentsPost ? { id: commentsPost.id, user: commentsPost.user, avatar: commentsPost.avatar, text: commentsPost.text } : null}
-        onClose={closeComments}
-        autoFocusOnOpen
-      />
+
 
       <Modal transparent visible={isMenuVisible} animationType="none" onRequestClose={() => closeContextMenu()}>
         <View style={styles.menuOverlay}>

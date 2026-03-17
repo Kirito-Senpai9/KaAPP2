@@ -16,7 +16,6 @@ export type StoryViewerParams = {
 export type RootStackParamList = {
   TelaLogin: undefined;
   RootTabs: undefined;
-  ComentariosPostagem: { post: PostPreview };
   StoryViewer: StoryViewerParams;
   CriarStories: undefined;
   CriarPostagem: undefined;
