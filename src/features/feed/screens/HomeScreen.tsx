@@ -11,7 +11,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/navigation/types';
 import { useFeed } from '@/features/feed/hooks/useFeed';
-import CommentsBottomSheet from '@/components/CommentsBottomSheet';
+import BottomSheetComments from '@/components/BottomSheetComments';
+import type { CommentPostPreview } from '@/types/comment';
 import type { Post } from '@/types/social';
 
 const { width } = Dimensions.get('window');
@@ -75,6 +76,7 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
 /* --- Card do Post (com animações) --- */
 type PostCardProps = {
   item: Post;
+  commentCount: number;
   isVisible: boolean;
   onOpenComments: (post: Post) => void;
   onOpenContextMenu: (post: Post, anchor: MenuAnchor) => void;
@@ -82,6 +84,7 @@ type PostCardProps = {
 
 const PostCard = memo(function PostCard({
   item,
+  commentCount,
   isVisible,
   onOpenComments,
   onOpenContextMenu,
@@ -319,7 +322,7 @@ const PostCard = memo(function PostCard({
             >
               <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
-            <Text style={styles.actionCount}>{formatCount(item.comments)}</Text>
+            <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
           </Animated.View>
 
           <Animated.View style={[styles.actionItem, { transform: [{ scale: repostScale }] }]}>
@@ -378,6 +381,7 @@ export default function Home() {
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
   const [menuData, setMenuData] = useState<{ post: Post; anchor: MenuAnchor } | null>(null);
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
+  const [commentCountOverrides, setCommentCountOverrides] = useState<Record<string, number>>({});
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.95)).current;
 
@@ -406,6 +410,19 @@ export default function Home() {
 
   const closeComments = useCallback(() => {
     setCommentsPost(null);
+  }, []);
+
+  const syncCommentCount = useCallback((postId: string, count: number) => {
+    setCommentCountOverrides((currentCounts) => {
+      if (currentCounts[postId] === count) {
+        return currentCounts;
+      }
+
+      return {
+        ...currentCounts,
+        [postId]: count,
+      };
+    });
   }, []);
 
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
@@ -486,16 +503,38 @@ export default function Home() {
   }, [navigation]);
 
   const renderPost = useCallback(
-    ({ item }: { item: Post }) => (
-      <PostCard
-        item={item}
-        isVisible={visiblePostIds.includes(item.id)}
-        onOpenComments={openComments}
-        onOpenContextMenu={openContextMenu}
-      />
-    ),
-    [openComments, openContextMenu, visiblePostIds]
+    ({ item }: { item: Post }) => {
+      const commentCount = commentCountOverrides[item.id] ?? item.comments;
+
+      return (
+        <PostCard
+          item={item}
+          commentCount={commentCount}
+          isVisible={visiblePostIds.includes(item.id)}
+          onOpenComments={openComments}
+          onOpenContextMenu={openContextMenu}
+        />
+      );
+    },
+    [commentCountOverrides, openComments, openContextMenu, visiblePostIds]
   );
+
+  const commentsSheetPost = useMemo<CommentPostPreview | null>(() => {
+    if (!commentsPost) {
+      return null;
+    }
+
+    return {
+      id: commentsPost.id,
+      authorName: commentsPost.user,
+      authorAvatar: commentsPost.avatar,
+      text: commentsPost.text,
+    };
+  }, [commentsPost]);
+
+  const activeCommentCount = commentsPost
+    ? commentCountOverrides[commentsPost.id] ?? commentsPost.comments
+    : 0;
 
   const FeedHeader = () => (
     <View style={styles.storiesWrap}>
@@ -542,20 +581,17 @@ export default function Home() {
         viewabilityConfig={viewabilityConfig}
       />
 
-      <CommentsBottomSheet
+      <BottomSheetComments
         visible={!!commentsPost}
-        post={
-          commentsPost
-            ? {
-                id: commentsPost.id,
-                user: commentsPost.user,
-                avatar: commentsPost.avatar,
-                text: commentsPost.text,
-              }
-            : null
-        }
+        post={commentsSheetPost}
         onClose={closeComments}
         autoFocusOnOpen
+        initialCount={activeCommentCount}
+        onCountChange={(count) => {
+          if (commentsPost) {
+            syncCommentCount(commentsPost.id, count);
+          }
+        }}
       />
 
 
