@@ -3,6 +3,15 @@ import type {
   CommentNode,
 } from '@/features/comments/domain/entities/comment';
 
+function sortCommentsByNewest(comments: CommentNode[]): CommentNode[] {
+  return [...comments]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .map((comment) => ({
+      ...comment,
+      replies: sortCommentsByNewest(comment.replies),
+    }));
+}
+
 export function countNestedComments(comments: CommentNode[]): number {
   return comments.reduce((total, comment) => {
     return total + 1 + countNestedComments(comment.replies);
@@ -43,7 +52,7 @@ export function appendReply(
     if (comment.id === targetId) {
       return {
         ...comment,
-        replies: [...comment.replies, nextReply],
+        replies: [nextReply, ...comment.replies],
       };
     }
 
@@ -61,16 +70,24 @@ export function appendReply(
 export function flattenComments(
   comments: CommentNode[],
   expandedThreads: Record<string, boolean>,
-  depth = 0
+  depth = 0,
+  parentId?: string
 ): CommentListRow[] {
-  return comments.flatMap((comment) => {
+  return sortCommentsByNewest(comments).flatMap((comment) => {
     const rows: CommentListRow[] = [
-      {
-        id: comment.id,
-        type: 'comment',
-        depth,
-        comment,
-      },
+      depth === 0
+        ? {
+            id: comment.id,
+            type: 'root-comment',
+            comment,
+          }
+        : {
+            id: comment.id,
+            type: 'reply',
+            actualDepth: depth,
+            parentId: parentId ?? comment.id,
+            comment,
+          },
     ];
 
     const repliesCount = countNestedComments(comment.replies);
@@ -81,14 +98,15 @@ export function flattenComments(
       rows.push({
         id: `toggle-${comment.id}`,
         type: 'thread-toggle',
-        depth: depth + 1,
         parentId: comment.id,
         expanded,
         repliesCount,
       });
 
       if (expanded) {
-        rows.push(...flattenComments(comment.replies, expandedThreads, depth + 1));
+        rows.push(
+          ...flattenComments(comment.replies, expandedThreads, depth + 1, comment.id)
+        );
       }
     }
 

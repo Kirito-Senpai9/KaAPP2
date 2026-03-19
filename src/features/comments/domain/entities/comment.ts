@@ -11,6 +11,7 @@ export type CommentNode = {
   createdAt: number;
   likes: number;
   liked: boolean;
+  replyingToUsername?: string;
   replies: CommentNode[];
 };
 
@@ -29,14 +30,19 @@ export type CommentPostPreview = {
 export type CommentListRow =
   | {
       id: string;
-      type: 'comment';
-      depth: number;
+      type: 'root-comment';
+      comment: CommentNode;
+    }
+  | {
+      id: string;
+      type: 'reply';
+      actualDepth: number;
+      parentId: string;
       comment: CommentNode;
     }
   | {
       id: string;
       type: 'thread-toggle';
-      depth: number;
       parentId: string;
       expanded: boolean;
       repliesCount: number;

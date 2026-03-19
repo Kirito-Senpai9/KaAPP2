@@ -4,7 +4,7 @@ import {
   TouchableOpacity, Animated, Easing, Platform, ViewToken, FlatListProps,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import type { Short } from '@/features/shorts/domain/entities/short';
 import { useShorts } from '@/features/shorts/presentation/hooks/useShorts';
@@ -46,7 +46,10 @@ const ShortCard = memo(function ShortCard({
   playing: boolean;            // controla qual página está visível
   onDoubleLike?: () => void;
 }) {
-  const videoRef = useRef<Video | null>(null);
+  const player = useVideoPlayer(item.videoUrl, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.timeUpdateEventInterval = 0.1;
+  });
 
   // estados
   const [liked, setLiked] = useState(false);
@@ -76,24 +79,31 @@ const ShortCard = memo(function ShortCard({
   }, []);
 
   // status do player: atualiza progresso
-  const onStatusUpdate = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
-    const dur = status.durationMillis ?? 0;
-    const pos = status.positionMillis ?? 0;
-    if (dur > 0) setProgress(Math.min(1, Math.max(0, pos / dur)));
-  };
+  useEffect(() => {
+    const subscription = player.addListener('timeUpdate', ({ currentTime }) => {
+      const duration = player.duration;
+      if (duration > 0) {
+        setProgress(Math.min(1, Math.max(0, currentTime / duration)));
+        return;
+      }
+
+      setProgress(0);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [player]);
 
   // tocar/pausar conforme página visível + pausa do usuário
   useEffect(() => {
-    const run = async () => {
-      if (!videoRef.current) return;
-      try {
-        if (playing && !userPaused) await videoRef.current.playAsync();
-        else await videoRef.current.pauseAsync();
-      } catch {}
-    };
-    run();
-  }, [playing, userPaused]);
+    if (playing && !userPaused) {
+      player.play();
+      return;
+    }
+
+    player.pause();
+  }, [player, playing, userPaused]);
 
   // helper: anima o coração (ícone)
   const animateHeart = () => {
@@ -175,16 +185,13 @@ const ShortCard = memo(function ShortCard({
     <View style={styles.page}>
       {/* vídeo (tap pausa/retoma, duplo toque curte) */}
       <Pressable style={styles.videoTouch} onPress={handleSingleOrDoubleTap}>
-        <Video
-          ref={(r) => {
-            videoRef.current = r;
-          }}
-          source={{ uri: item.videoUrl }}
+        <VideoView
+          player={player}
           style={styles.video}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={false}
-          isLooping
-          onPlaybackStatusUpdate={onStatusUpdate}
+          contentFit="cover"
+          nativeControls={false}
+          surfaceType="textureView"
+          useExoShutter={false}
         />
       </Pressable>
 

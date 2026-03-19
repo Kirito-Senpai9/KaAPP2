@@ -147,6 +147,7 @@ export function useComments(
       createdAt: Date.now(),
       likes: 0,
       liked: false,
+      replyingToUsername: replyingTo?.username,
       replies: [],
     };
 
@@ -159,7 +160,7 @@ export function useComments(
         [replyingTo.id]: true,
       }));
     } else {
-      setComments((currentComments) => [...currentComments, nextComment]);
+      setComments((currentComments) => [nextComment, ...currentComments]);
     }
 
     setInput('');

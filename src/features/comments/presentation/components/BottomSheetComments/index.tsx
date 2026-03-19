@@ -2,21 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   InteractionManager,
   Keyboard,
-  Platform,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import {
   BottomSheetBackdrop,
-  BottomSheetFlatList,
   BottomSheetModal,
   BottomSheetTextInput,
   BottomSheetView,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
+import CommentList from '@/features/comments/presentation/components/BottomSheetComments/CommentList';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import CommentItem from '@/features/comments/presentation/components/BottomSheetComments/CommentItem';
 import CommentsComposerFooter, {
   setComposerFooterSnapshot,
 } from '@/features/comments/presentation/components/BottomSheetComments/CommentsComposerFooter';
@@ -54,6 +52,7 @@ export default function BottomSheetComments({
   const focusFrameRef = useRef<number | null>(null);
   const focusRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingScrollRowIdRef = useRef<string | null>(null);
+  const pendingScrollIndexRef = useRef<number | null>(null);
   const shouldAutoFocusRef = useRef(false);
   const isAtFinalSnapRef = useRef(false);
   const isInputFocusedRef = useRef(false);
@@ -219,6 +218,7 @@ export default function BottomSheetComments({
     isAtFinalSnapRef.current = false;
     isInputFocusedRef.current = false;
     pendingScrollRowIdRef.current = null;
+    pendingScrollIndexRef.current = null;
     clearRetainedFocus();
     clearPendingFocus();
     setIsComposerFocused(false);
@@ -243,6 +243,7 @@ export default function BottomSheetComments({
       isAtFinalSnapRef.current = false;
       isInputFocusedRef.current = false;
       pendingScrollRowIdRef.current = null;
+      pendingScrollIndexRef.current = null;
       clearRetainedFocus();
       clearPendingFocus();
       setIsComposerFocused(false);
@@ -283,6 +284,7 @@ export default function BottomSheetComments({
     }
 
     pendingScrollRowIdRef.current = null;
+    pendingScrollIndexRef.current = rowIndex;
     requestAnimationFrame(() => {
       listRef.current?.scrollToIndex?.({
         index: rowIndex,
@@ -361,51 +363,33 @@ export default function BottomSheetComments({
           {!!post && <Text style={styles.headerSubtitle}>Post de {post.authorName}</Text>}
         </View>
 
-        {isLoading ? (
-          <BottomSheetView
-            style={styles.skeletonList}
-            enableFooterMarginAdjustment
-          >
-            {Array.from({ length: 4 }).map((_, index) => (
-              <View key={`skeleton-${index}`} style={styles.skeletonRow}>
-                <View style={styles.skeletonAvatar} />
-                <View style={styles.skeletonContent}>
-                  <View style={[styles.skeletonLine, styles.skeletonLineShort]} />
-                  <View style={styles.skeletonLine} />
-                  <View style={[styles.skeletonLine, styles.skeletonLineMedium]} />
-                </View>
-              </View>
-            ))}
-          </BottomSheetView>
-        ) : (
-          <BottomSheetFlatList
-            ref={listRef}
-            data={rows}
-            keyExtractor={(item: CommentListRow) => item.id}
-            renderItem={({ item }: { item: CommentListRow }) => (
-              <View style={styles.rowBlock}>
-                <CommentItem
-                  row={item}
-                  onReply={handleReply}
-                  onLike={toggleLike}
-                  onToggleThread={toggleThread}
-                />
-              </View>
-            )}
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            enableFooterMarginAdjustment
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollToIndexFailed={() => {
-              requestAnimationFrame(() => {
-                listRef.current?.scrollToEnd?.({ animated: true });
+        <CommentList
+          listRef={listRef}
+          rows={rows}
+          isLoading={isLoading}
+          onReply={handleReply}
+          onLike={toggleLike}
+          onToggleThread={toggleThread}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollToIndexFailed={(info) => {
+            const targetIndex = pendingScrollIndexRef.current ?? info.index;
+
+            requestAnimationFrame(() => {
+              listRef.current?.scrollToOffset?.({
+                offset: Math.max(0, info.averageItemLength * targetIndex),
+                animated: false,
               });
-            }}
-            removeClippedSubviews={Platform.OS === 'android'}
-          />
-        )}
+            });
+
+            setTimeout(() => {
+              listRef.current?.scrollToIndex?.({
+                index: targetIndex,
+                animated: true,
+                viewPosition: 1,
+              });
+            }, 60);
+          }}
+        />
       </BottomSheetView>
     </BottomSheetModal>
   );
@@ -444,52 +428,5 @@ const styles = StyleSheet.create({
     color: '#98A1CE',
     fontSize: 12,
     marginTop: 2,
-  },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    paddingHorizontal: 14,
-    paddingTop: 8,
-  },
-  rowBlock: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  skeletonList: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-  },
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  skeletonAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginRight: 10,
-  },
-  skeletonContent: {
-    flex: 1,
-    gap: 8,
-  },
-  skeletonLine: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    width: '100%',
-  },
-  skeletonLineShort: {
-    width: '38%',
-  },
-  skeletonLineMedium: {
-    width: '62%',
   },
 });

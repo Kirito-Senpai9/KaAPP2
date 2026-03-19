@@ -1,10 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
-import { ResizeMode, Video } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
 const { width } = Dimensions.get('window');
 
@@ -13,6 +13,32 @@ export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarS
   const [videoPreviewError, setVideoPreviewError] = useState(false);
   const [caption, setCaption] = useState('');
   const anim = useRef(new Animated.Value(1)).current;
+  const previewPlayer = useVideoPlayer(video, (player) => {
+    player.loop = false;
+    player.muted = true;
+  });
+
+  useEffect(() => {
+    if (!video) return;
+
+    setVideoPreviewError(false);
+    previewPlayer.pause();
+    previewPlayer.currentTime = 0;
+  }, [previewPlayer, video]);
+
+  useEffect(() => {
+    if (!video) return;
+
+    const subscription = previewPlayer.addListener('statusChange', ({ status }) => {
+      if (status === 'error') {
+        setVideoPreviewError(true);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [previewPlayer, video]);
 
   const pickVideo = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -56,15 +82,13 @@ export default function CriarShorts({ navigation }: RootStackScreenProps<'CriarS
           {video ? (
             <TouchableOpacity onPress={pickVideo} activeOpacity={0.9} style={styles.mediaPreview}>
               {!videoPreviewError ? (
-                <Video
-                  source={{ uri: video }}
+                <VideoView
+                  player={previewPlayer}
                   style={styles.previewVideo}
-                  resizeMode={ResizeMode.COVER}
-                  shouldPlay={false}
-                  isLooping={false}
-                  isMuted
-                  useNativeControls={false}
-                  onError={() => setVideoPreviewError(true)}
+                  contentFit="cover"
+                  nativeControls={false}
+                  surfaceType="textureView"
+                  useExoShutter={false}
                 />
               ) : (
                 <View style={styles.videoFallback}>

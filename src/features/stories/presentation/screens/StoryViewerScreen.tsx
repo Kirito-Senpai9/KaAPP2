@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +39,7 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [emojiInsertFx, setEmojiInsertFx] = useState<string | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -49,6 +50,12 @@ export default function StoryViewer({ route, navigation }: Props) {
   const storyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyStartAtRef = useRef<number>(0);
   const storyRemainingRef = useRef<number>(IMAGE_DURATION_MS);
+  const videoSourceKeyRef = useRef<string | null>(null);
+  const videoPlayer = useVideoPlayer(null, (player) => {
+    player.loop = false;
+    player.muted = false;
+    player.timeUpdateEventInterval = 0.25;
+  });
 
   const currentUser = users[currentUserIndex];
   const currentStories = currentUser?.stories ?? [];
@@ -180,6 +187,7 @@ export default function StoryViewer({ route, navigation }: Props) {
 
     setVideoDurationMs(0);
     setVideoPositionMs(0);
+    setIsVideoReady(currentStory.type !== 'video');
     progress.stopAnimation();
     progress.setValue(0);
 
@@ -188,15 +196,67 @@ export default function StoryViewer({ route, navigation }: Props) {
       Animated.timing(contentFade, { toValue: 1, duration: 280, useNativeDriver: true }),
     ]).start();
 
-    if (currentStory.type === 'image' && !isPaused) {
-      startImageProgress(currentStory.durationMs ?? IMAGE_DURATION_MS);
+    if (currentStory.type === 'image') {
+      videoPlayer.pause();
+      videoSourceKeyRef.current = null;
+      void videoPlayer.replaceAsync(null);
+
+      if (!isPaused) {
+        startImageProgress(currentStory.durationMs ?? IMAGE_DURATION_MS);
+      }
+    } else {
+      clearStoryTimer();
+
+      const nextSource = currentStory.uri;
+      let isStale = false;
+
+      const loadVideo = async () => {
+        try {
+          if (videoSourceKeyRef.current !== nextSource) {
+            videoSourceKeyRef.current = nextSource;
+            await videoPlayer.replaceAsync({ uri: nextSource });
+          }
+
+          if (isStale) return;
+
+          videoPlayer.muted = isMuted;
+
+          if (isPaused) {
+            videoPlayer.pause();
+          } else {
+            videoPlayer.play();
+          }
+        } catch {
+          if (!isStale) {
+            setIsVideoReady(true);
+          }
+        }
+      };
+
+      void loadVideo();
+
+      return () => {
+        isStale = true;
+        clearStoryTimer();
+        progress.stopAnimation();
+      };
     }
 
     return () => {
       clearStoryTimer();
       progress.stopAnimation();
     };
-  }, [clearStoryTimer, contentFade, currentStory, isPaused, navigation, progress, startImageProgress]);
+  }, [
+    clearStoryTimer,
+    contentFade,
+    currentStory,
+    isMuted,
+    isPaused,
+    navigation,
+    progress,
+    startImageProgress,
+    videoPlayer,
+  ]);
 
   useEffect(() => {
     if (!currentStory) return;
@@ -208,6 +268,48 @@ export default function StoryViewer({ route, navigation }: Props) {
   }, [currentStories, currentStory, currentStoryIndex]);
 
   useEffect(() => () => clearStoryTimer(), [clearStoryTimer]);
+
+  useEffect(() => {
+    const sourceLoadSubscription = videoPlayer.addListener('sourceLoad', ({ duration }) => {
+      setVideoDurationMs(Math.max(duration, 0) * 1000);
+    });
+    const timeUpdateSubscription = videoPlayer.addListener('timeUpdate', ({ currentTime }) => {
+      const durationMs = Math.max(videoPlayer.duration, 0) * 1000;
+      const positionMs = Math.max(currentTime, 0) * 1000;
+
+      setVideoDurationMs(durationMs);
+      setVideoPositionMs(positionMs);
+      progress.setValue(durationMs > 0 ? positionMs / durationMs : 0);
+    });
+    const playToEndSubscription = videoPlayer.addListener('playToEnd', () => {
+      goNext();
+    });
+
+    return () => {
+      sourceLoadSubscription.remove();
+      timeUpdateSubscription.remove();
+      playToEndSubscription.remove();
+    };
+  }, [goNext, progress, videoPlayer]);
+
+  useEffect(() => {
+    if (currentStory?.type !== 'video') return;
+
+    videoPlayer.muted = isMuted;
+  }, [currentStory?.type, isMuted, videoPlayer]);
+
+  useEffect(() => {
+    if (currentStory?.type !== 'video') return;
+
+    if (isPaused) {
+      videoPlayer.pause();
+      return;
+    }
+
+    if (videoPlayer.status === 'readyToPlay') {
+      videoPlayer.play();
+    }
+  }, [currentStory?.id, currentStory?.type, isPaused, videoPlayer]);
 
   useEffect(() => {
     if (currentUserIndex === previousUserIndexRef.current) return;
@@ -235,24 +337,6 @@ export default function StoryViewer({ route, navigation }: Props) {
       onHide.remove();
     };
   }, [insets.bottom]);
-
-  const onVideoStatus = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
-
-    setVideoDurationMs(status.durationMillis ?? 0);
-    setVideoPositionMs(status.positionMillis ?? 0);
-
-    const normalizedProgress =
-      status.durationMillis && status.durationMillis > 0
-        ? status.positionMillis / status.durationMillis
-        : 0;
-
-    progress.setValue(normalizedProgress);
-
-    if (status.didJustFinish) {
-      goNext();
-    }
-  }, [goNext, progress]);
 
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 25,
@@ -329,17 +413,20 @@ export default function StoryViewer({ route, navigation }: Props) {
         {...panResponder.panHandlers}
       >
         {currentStory.type === 'video' ? (
-          <Video
-            source={{ uri: currentStory.uri }}
-            style={styles.media}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={!isPaused}
-            isLooping={false}
-            isMuted={isMuted}
-            onPlaybackStatusUpdate={onVideoStatus}
-            usePoster
-            posterSource={currentStory.thumbnail ? { uri: currentStory.thumbnail } : undefined}
-          />
+          <>
+            <VideoView
+              player={videoPlayer}
+              style={styles.media}
+              contentFit="cover"
+              nativeControls={false}
+              surfaceType="textureView"
+              useExoShutter={false}
+              onFirstFrameRender={() => setIsVideoReady(true)}
+            />
+            {!!currentStory.thumbnail && !isVideoReady && (
+              <Image source={{ uri: currentStory.thumbnail }} style={styles.media} resizeMode="cover" />
+            )}
+          </>
         ) : (
           <Image source={{ uri: currentStory.uri }} style={styles.media} resizeMode="cover" />
         )}

@@ -6,7 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
@@ -85,7 +85,11 @@ const PostCard = memo(function PostCard({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPausedByUser, setIsPausedByUser] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
-  const videoRef = useRef<Video | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(!item.thumbnail);
+  const videoPlayer = useVideoPlayer(item.video ?? null, (player) => {
+    player.loop = false;
+    player.muted = true;
+  });
 
   const likeScale    = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
@@ -150,17 +154,44 @@ const PostCard = memo(function PostCard({
   const isVideoPost = item.type === 'video-horizontal' || item.type === 'video-vertical';
   const shouldAutoPlay = isVisible && !isPausedByUser && !hasEnded;
 
-  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
+  useEffect(() => {
+    setIsVideoReady(!item.thumbnail);
+  }, [item.thumbnail]);
 
-    setIsPlaying(status.isPlaying);
+  useEffect(() => {
+    if (!isVideoPost) return;
 
-    if (status.didJustFinish) {
+    const playingSubscription = videoPlayer.addListener('playingChange', ({ isPlaying: nextIsPlaying }) => {
+      setIsPlaying(nextIsPlaying);
+    });
+    const playToEndSubscription = videoPlayer.addListener('playToEnd', () => {
       setHasEnded(true);
       setIsPausedByUser(false);
       setIsPlaying(false);
+    });
+
+    return () => {
+      playingSubscription.remove();
+      playToEndSubscription.remove();
+    };
+  }, [isVideoPost, videoPlayer]);
+
+  useEffect(() => {
+    if (!isVideoPost) return;
+
+    videoPlayer.muted = isMuted;
+  }, [isMuted, isVideoPost, videoPlayer]);
+
+  useEffect(() => {
+    if (!isVideoPost) return;
+
+    if (shouldAutoPlay) {
+      videoPlayer.play();
+      return;
     }
-  };
+
+    videoPlayer.pause();
+  }, [isVideoPost, shouldAutoPlay, videoPlayer]);
 
   const handleVideoPress = async () => {
     if (!isVideoPost) return;
@@ -168,7 +199,7 @@ const PostCard = memo(function PostCard({
     if (hasEnded) {
       setHasEnded(false);
       setIsPausedByUser(false);
-      await videoRef.current?.setPositionAsync(0);
+      videoPlayer.replay();
       return;
     }
 
@@ -183,7 +214,7 @@ const PostCard = memo(function PostCard({
   const handleReplay = async () => {
     setHasEnded(false);
     setIsPausedByUser(false);
-    await videoRef.current?.setPositionAsync(0);
+    videoPlayer.replay();
   };
 
   const renderMedia = () => {
@@ -204,18 +235,18 @@ const PostCard = memo(function PostCard({
           style={[styles.videoWrap, isVertical ? styles.verticalVideoWrap : styles.horizontalVideoWrap]}
           onPress={handleVideoPress}
         >
-          <Video
-            ref={videoRef}
-            source={{ uri: item.video }}
+          <VideoView
+            player={videoPlayer}
             style={styles.video}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={shouldAutoPlay}
-            isLooping={false}
-            isMuted={isMuted}
-            usePoster
-            posterSource={item.thumbnail ? { uri: item.thumbnail } : undefined}
-            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+            contentFit="cover"
+            nativeControls={false}
+            surfaceType="textureView"
+            useExoShutter={false}
+            onFirstFrameRender={() => setIsVideoReady(true)}
           />
+          {!!item.thumbnail && !isVideoReady && (
+            <Image source={{ uri: item.thumbnail }} style={styles.video} resizeMode="cover" />
+          )}
 
           <TouchableOpacity
             style={styles.muteButton}

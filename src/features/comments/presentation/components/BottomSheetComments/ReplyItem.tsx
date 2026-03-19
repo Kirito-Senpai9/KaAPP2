@@ -1,29 +1,20 @@
 import React, { memo } from 'react';
-import type {
-  CommentListRow,
-  CommentNode,
-} from '@/features/comments/domain/entities/comment';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import type { CommentNode, CommentListRow } from '@/features/comments/domain/entities/comment';
 import CommentActions from '@/features/comments/presentation/components/BottomSheetComments/CommentActions';
 import { formatRelativeTime } from '@/features/comments/presentation/components/BottomSheetComments/formatRelativeTime';
-import { Image, StyleSheet, Text, View } from 'react-native';
 
-type CommentItemProps = {
-  row: Extract<CommentListRow, { type: 'root-comment' }>;
-  showSeparator: boolean;
+type ReplyItemProps = {
+  row: Extract<CommentListRow, { type: 'reply' }>;
   onReply: (comment: CommentNode) => void;
   onLike: (commentId: string) => void;
 };
 
-function CommentItemComponent({
-  row,
-  showSeparator,
-  onReply,
-  onLike,
-}: CommentItemProps) {
+function ReplyItemComponent({ row, onReply, onLike }: ReplyItemProps) {
   const { comment } = row;
 
   return (
-    <View style={[styles.commentRow, showSeparator && styles.separator]}>
+    <View style={styles.container}>
       <Image source={{ uri: comment.author.avatar }} style={styles.avatar} />
 
       <View style={styles.content}>
@@ -32,9 +23,15 @@ function CommentItemComponent({
           <Text style={styles.timeLabel}>{formatRelativeTime(comment.createdAt)}</Text>
         </View>
 
-        <Text style={styles.bodyText}>{comment.content}</Text>
+        <Text style={styles.bodyText}>
+          {comment.replyingToUsername ? (
+            <Text style={styles.replyContext}>@{comment.replyingToUsername} </Text>
+          ) : null}
+          {comment.content}
+        </Text>
 
         <CommentActions
+          compact
           likes={comment.likes}
           liked={comment.liked}
           onLike={() => onLike(comment.id)}
@@ -45,23 +42,21 @@ function CommentItemComponent({
   );
 }
 
-export default memo(CommentItemComponent);
+export default memo(ReplyItemComponent);
 
 const styles = StyleSheet.create({
-  commentRow: {
+  container: {
+    marginLeft: 46,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 12,
-  },
-  separator: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    paddingTop: 10,
+    paddingBottom: 2,
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 10,
   },
   content: {
     flex: 1,
@@ -74,18 +69,22 @@ const styles = StyleSheet.create({
   },
   username: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
   },
   timeLabel: {
     color: 'rgba(150,162,217,0.76)',
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '500',
   },
   bodyText: {
     color: '#E6E9FA',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13.5,
+    lineHeight: 19,
     marginTop: 3,
+  },
+  replyContext: {
+    color: '#B9C3FF',
+    fontWeight: '700',
   },
 });
