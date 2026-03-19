@@ -41,7 +41,7 @@ Antes de escrever, editar ou gerar qualquer linha de código, o Codex DEVE segui
 
 ## Comportamento esperado
 
-- Priorizar documentação oficial sobre qualquer outra fonte.
+- Priorizar documentação oficial sobre qualquer outra fonte..
 - Preferir soluções estáveis e amplamente utilizadas.
 - Evitar soluções experimentais sem justificativa.
 - Explicar decisões técnicas de forma objetiva.
