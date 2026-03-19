@@ -6,7 +6,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  type LayoutChangeEvent,
 } from 'react-native';
 import { BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +16,6 @@ type CommentInputProps = {
   value: string;
   replyingTo: CommentReplyTarget | null;
   bottomPadding: number;
-  onLayout: (event: LayoutChangeEvent) => void;
   onChangeText: (value: string) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -35,7 +33,6 @@ const CommentInput = forwardRef<
     value,
     replyingTo,
     bottomPadding,
-    onLayout,
     onChangeText,
     onFocus,
     onBlur,
@@ -49,7 +46,6 @@ const CommentInput = forwardRef<
 
   return (
     <View
-      onLayout={onLayout}
       style={[
         styles.container,
         {
