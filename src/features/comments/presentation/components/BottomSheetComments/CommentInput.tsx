@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
+import { Image } from 'expo-image';
 import {
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -66,7 +66,13 @@ const CommentInput = forwardRef<
       )}
 
       <View style={styles.row}>
-        <Image source={{ uri: currentUser.avatar }} style={styles.avatar} />
+        <Image
+          source={{ uri: currentUser.avatar }}
+          style={styles.avatar}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={currentUser.avatar}
+        />
 
         <BottomSheetTextInput
           ref={ref}

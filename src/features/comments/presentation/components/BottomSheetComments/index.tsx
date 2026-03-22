@@ -371,7 +371,11 @@ export default function BottomSheetComments({
           onLike={toggleLike}
           onToggleThread={toggleThread}
           onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollToIndexFailed={(info) => {
+          onScrollToIndexFailed={(info: {
+            index: number;
+            highestMeasuredFrameIndex: number;
+            averageItemLength: number;
+          }) => {
             const targetIndex = pendingScrollIndexRef.current ?? info.index;
 
             requestAnimationFrame(() => {

@@ -1,29 +1,28 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   Animated, Dimensions, ImageBackground, Easing, Modal, Pressable, BackHandler
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
 import { BottomSheetComments, type CommentPostPreview } from '@/features/comments';
 import { useStories } from '@/features/stories';
 import type { Post } from '@/features/feed/domain/entities/post';
 import { useFeed } from '@/features/feed/presentation/hooks/useFeed';
+import {
+  useFeedUiStore,
+  type MenuAnchor,
+} from '@/features/feed/presentation/store/useFeedUiStore';
 import { formatCount } from '@/shared/utils/formatCount';
 
 const { width } = Dimensions.get('window');
-
-type MenuAnchor = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
 
 /* --- Stories (rola junto no header) --- */
 const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; onPress: () => void }) {
@@ -54,7 +53,13 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
           resizeMode="cover"
         >
           <View style={styles.storyAvatarWrap}>
-            <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
+            <Image
+              source={{ uri: item.avatar }}
+              style={styles.storyAvatar}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={item.avatar}
+            />
           </View>
         </ImageBackground>
       </TouchableOpacity>
@@ -221,7 +226,13 @@ const PostCard = memo(function PostCard({
     if (item.type === 'image' && item.image) {
       return (
         <View style={styles.mediaWrap}>
-          <Image source={{ uri: item.image }} style={styles.media} />
+          <Image
+            source={{ uri: item.image }}
+            style={styles.media}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={item.image}
+          />
         </View>
       );
     }
@@ -245,7 +256,13 @@ const PostCard = memo(function PostCard({
             onFirstFrameRender={() => setIsVideoReady(true)}
           />
           {!!item.thumbnail && !isVideoReady && (
-            <Image source={{ uri: item.thumbnail }} style={styles.video} resizeMode="cover" />
+            <Image
+              source={{ uri: item.thumbnail }}
+              style={styles.video}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={item.thumbnail}
+            />
           )}
 
           <TouchableOpacity
@@ -294,7 +311,13 @@ const PostCard = memo(function PostCard({
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Image source={{ uri: item.avatar }} style={styles.cardAvatar} />
+        <Image
+          source={{ uri: item.avatar }}
+          style={styles.cardAvatar}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={item.avatar}
+        />
         <View style={{ flex: 1 }}>
           <Text style={styles.cardUser}>{item.user}</Text>
           <Text style={styles.cardSub}>{item.timeLabel} • público</Text>
@@ -396,13 +419,19 @@ const PostCard = memo(function PostCard({
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { posts } = useFeed();
-  const stories = useStories();
+  const isFocused = useIsFocused();
+  const { posts } = useFeed(isFocused);
+  const stories = useStories(isFocused);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
-  const [menuData, setMenuData] = useState<{ post: Post; anchor: MenuAnchor } | null>(null);
-  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
-  const [commentCountOverrides, setCommentCountOverrides] = useState<Record<string, number>>({});
+  const menuData = useFeedUiStore((state) => state.menuData);
+  const commentsPost = useFeedUiStore((state) => state.commentsPost);
+  const commentCountOverrides = useFeedUiStore((state) => state.commentCountOverrides);
+  const storeOpenComments = useFeedUiStore((state) => state.openComments);
+  const storeCloseComments = useFeedUiStore((state) => state.closeComments);
+  const storeOpenContextMenu = useFeedUiStore((state) => state.openContextMenu);
+  const storeCloseContextMenu = useFeedUiStore((state) => state.closeContextMenu);
+  const syncCommentCount = useFeedUiStore((state) => state.syncCommentCount);
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.95)).current;
 
@@ -413,10 +442,10 @@ export default function Home() {
       Animated.timing(menuOpacity, { toValue: 0, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       Animated.timing(menuScale, { toValue: 0.95, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]).start(() => {
-      setMenuData(null);
+      storeCloseContextMenu();
       onEnd?.();
     });
-  }, [menuOpacity, menuScale]);
+  }, [menuOpacity, menuScale, storeCloseContextMenu]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
     const ids = viewableItems.map((entry) => entry.item.id);
@@ -426,31 +455,18 @@ export default function Home() {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
 
   const openComments = useCallback((post: Post) => {
-    setCommentsPost(post);
-  }, []);
+    storeOpenComments(post);
+  }, [storeOpenComments]);
 
   const closeComments = useCallback(() => {
-    setCommentsPost(null);
-  }, []);
-
-  const syncCommentCount = useCallback((postId: string, count: number) => {
-    setCommentCountOverrides((currentCounts) => {
-      if (currentCounts[postId] === count) {
-        return currentCounts;
-      }
-
-      return {
-        ...currentCounts,
-        [postId]: count,
-      };
-    });
-  }, []);
+    storeCloseComments();
+  }, [storeCloseComments]);
 
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
     menuOpacity.setValue(0);
     menuScale.setValue(0.95);
-    setMenuData({ post, anchor });
-  }, [menuOpacity, menuScale]);
+    storeOpenContextMenu(post, anchor);
+  }, [menuOpacity, menuScale, storeOpenContextMenu]);
 
   useEffect(() => {
     if (!isMenuVisible) return;
@@ -516,12 +532,14 @@ export default function Home() {
 
 
   const openStoryViewer = useCallback((userIndex: number) => {
+    if (!isFocused) return;
+
     navigation.navigate('StoryViewer', {
       users: stories,
       initialUserIndex: userIndex,
       initialStoryIndex: 0,
     });
-  }, [navigation]);
+  }, [isFocused, navigation, stories]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -559,16 +577,14 @@ export default function Home() {
 
   const FeedHeader = () => (
     <View style={styles.storiesWrap}>
-      <FlatList
+      <FlashList
         horizontal
         data={stories}
-        initialNumToRender={4}
-        windowSize={3}
-        maxToRenderPerBatch={5}
+        drawDistance={width}
         keyExtractor={(s) => s.id}
         renderItem={({ item, index }) => <StoryCard item={item} onPress={() => openStoryViewer(index)} />}
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 12 }}
+        contentContainerStyle={styles.storyListContent}
       />
     </View>
   );
@@ -587,16 +603,15 @@ export default function Home() {
       </View>
 
       {/* Feed: Stories no header (sobem juntos) */}
-      <FlatList
+      <FlashList
         data={posts}
-        initialNumToRender={3}
-        windowSize={5}
-        maxToRenderPerBatch={4}
+        drawDistance={width * 2}
         keyExtractor={(p) => p.id}
         renderItem={renderPost}
+        getItemType={() => 'post'}
         ListHeaderComponent={FeedHeader}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={styles.feedContent}
         removeClippedSubviews={false}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -692,6 +707,7 @@ const styles = StyleSheet.create({
 
   // stories
   storiesWrap: { paddingVertical: 10, marginBottom: 8 },
+  storyListContent: { paddingHorizontal: 12 },
   storyItem: { width: 64, height: 89, marginHorizontal: 6, borderRadius: 15, overflow: 'hidden' },
   storyBg: { flex: 1, borderRadius: 15 },
   storyBgImage: { borderRadius: 15 },
@@ -710,6 +726,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  feedContent: {
+    paddingBottom: 120,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 10, paddingTop: 6 },
   moreButton: {

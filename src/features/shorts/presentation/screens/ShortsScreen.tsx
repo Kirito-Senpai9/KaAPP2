@@ -1,11 +1,14 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, Dimensions, FlatList, Image, Pressable,
-  TouchableOpacity, Animated, Easing, Platform, ViewToken, FlatListProps,
+  View, Text, StyleSheet, Dimensions, Pressable,
+  TouchableOpacity, Animated, Easing, Platform,
 } from 'react-native';
+import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import type { Short } from '@/features/shorts/domain/entities/short';
 import { useShorts } from '@/features/shorts/presentation/hooks/useShorts';
 import { formatCount } from '@/shared/utils/formatCount';
@@ -215,7 +218,13 @@ const ShortCard = memo(function ShortCard({
       <View style={styles.rightRail}>
         {/* Perfil + seguir */}
         <View style={styles.profileBlock}>
-          <Image source={{ uri: item.user.avatar }} style={styles.avatar} />
+          <Image
+            source={{ uri: item.user.avatar }}
+            style={styles.avatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={item.user.avatar}
+          />
           <TouchableOpacity
             style={[styles.followBtn, follow && styles.following]}
             onPress={() => setFollow(v => !v)}
@@ -281,7 +290,8 @@ const ShortCard = memo(function ShortCard({
    Tela principal (lista vertical com paging)
 ========================================= */
 export default function Shorts() {
-  const { mode, setMode, data } = useShorts();
+  const isFocused = useIsFocused();
+  const { mode, setMode, data } = useShorts(isFocused);
 
   const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
 
@@ -297,7 +307,7 @@ export default function Shorts() {
     && typeof item.id === 'string'
   );
 
-  const onViewableItemsChanged = useRef<NonNullable<FlatListProps<Short>['onViewableItemsChanged']>>(({ viewableItems }) => {
+  const onViewableItemsChanged = useRef<NonNullable<FlashListProps<Short>['onViewableItemsChanged']>>(({ viewableItems }) => {
     const viewableItem = viewableItems.find((token: ViewToken<Short>) => token.isViewable);
 
     if (isShort(viewableItem?.item)) setActiveId(viewableItem.item.id);
@@ -317,18 +327,16 @@ export default function Shorts() {
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
       <Tabs mode={mode} onChange={setMode} />
 
-      <FlatList
+      <FlashList
         data={data}
-        initialNumToRender={2}
-        windowSize={4}
-        maxToRenderPerBatch={3}
+        drawDistance={height}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
+        getItemType={() => 'short'}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewConfigRef.current}
-        getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
       />
     </View>
   );

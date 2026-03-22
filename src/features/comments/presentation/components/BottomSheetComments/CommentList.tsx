@@ -1,10 +1,9 @@
 import React, { memo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  BottomSheetFlatList,
+  BottomSheetFlashList,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
-import type { FlatListProps } from 'react-native';
 import type {
   CommentListRow,
   CommentNode,
@@ -20,7 +19,11 @@ type CommentListProps = {
   onLike: (commentId: string) => void;
   onToggleThread: (commentId: string) => void;
   onScrollBeginDrag: () => void;
-  onScrollToIndexFailed: NonNullable<FlatListProps<CommentListRow>['onScrollToIndexFailed']>;
+  onScrollToIndexFailed: (info: {
+    index: number;
+    highestMeasuredFrameIndex: number;
+    averageItemLength: number;
+  }) => void;
 };
 
 function CommentListComponent({
@@ -58,10 +61,11 @@ function CommentListComponent({
   }
 
   return (
-    <BottomSheetFlatList
+    <BottomSheetFlashList
       ref={listRef}
       data={rows}
       keyExtractor={(item: CommentListRow) => item.id}
+      getItemType={(item: CommentListRow) => item.type}
       renderItem={({ item, index }: { item: CommentListRow; index: number }) => {
         if (item.type === 'thread-toggle') {
           return (
@@ -104,9 +108,9 @@ function CommentListComponent({
       enableFooterMarginAdjustment
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      removeClippedSubviews={Platform.OS === 'android'}
       onScrollBeginDrag={onScrollBeginDrag}
       onScrollToIndexFailed={onScrollToIndexFailed}
-      removeClippedSubviews={Platform.OS === 'android'}
     />
   );
 }

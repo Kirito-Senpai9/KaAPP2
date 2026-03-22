@@ -1,11 +1,12 @@
 import React, { memo } from 'react';
+import { Image } from 'expo-image';
 import type {
   CommentListRow,
   CommentNode,
 } from '@/features/comments/domain/entities/comment';
 import CommentActions from '@/features/comments/presentation/components/BottomSheetComments/CommentActions';
 import { formatRelativeTime } from '@/features/comments/presentation/components/BottomSheetComments/formatRelativeTime';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 type CommentItemProps = {
   row: Extract<CommentListRow, { type: 'root-comment' }>;
@@ -24,7 +25,13 @@ function CommentItemComponent({
 
   return (
     <View style={[styles.commentRow, showSeparator && styles.separator]}>
-      <Image source={{ uri: comment.author.avatar }} style={styles.avatar} />
+      <Image
+        source={{ uri: comment.author.avatar }}
+        style={styles.avatar}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={comment.author.avatar}
+      />
 
       <View style={styles.content}>
         <View style={styles.metaRow}>

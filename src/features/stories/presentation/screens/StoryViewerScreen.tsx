@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   Keyboard,
   PanResponder,
   Platform,
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -263,7 +263,7 @@ export default function StoryViewer({ route, navigation }: Props) {
 
     const nextStory = currentStories[currentStoryIndex + 1];
     if (nextStory?.type === 'image') {
-      Image.prefetch(nextStory.uri);
+      void Image.prefetch(nextStory.uri);
     }
   }, [currentStories, currentStory, currentStoryIndex]);
 
@@ -424,11 +424,23 @@ export default function StoryViewer({ route, navigation }: Props) {
               onFirstFrameRender={() => setIsVideoReady(true)}
             />
             {!!currentStory.thumbnail && !isVideoReady && (
-              <Image source={{ uri: currentStory.thumbnail }} style={styles.media} resizeMode="cover" />
+              <Image
+                source={{ uri: currentStory.thumbnail }}
+                style={styles.media}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={currentStory.thumbnail}
+              />
             )}
           </>
         ) : (
-          <Image source={{ uri: currentStory.uri }} style={styles.media} resizeMode="cover" />
+          <Image
+            source={{ uri: currentStory.uri }}
+            style={styles.media}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={currentStory.uri}
+          />
         )}
 
         <View style={styles.overlayTop}>
@@ -452,7 +464,13 @@ export default function StoryViewer({ route, navigation }: Props) {
 
           <View style={[styles.header, { marginTop: insets.top + 4 }]}>
             <View style={styles.userInfo}>
-              <Image source={{ uri: currentUser.avatar }} style={styles.avatar} />
+              <Image
+                source={{ uri: currentUser.avatar }}
+                style={styles.avatar}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={currentUser.avatar}
+              />
               <Text style={styles.userText}>{currentUser.name} • {currentStory.postedAt}</Text>
             </View>
 

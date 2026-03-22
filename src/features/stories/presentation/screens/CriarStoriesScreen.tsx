@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Animated, Dimensions, ScrollView
+  View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootStackScreenProps } from '@/app/navigation/types';
@@ -66,7 +67,13 @@ export default function CriarStories({ navigation }: RootStackScreenProps<'Criar
     );
     return (
       <TouchableOpacity style={styles.mediaPreview} onPress={pickMedia} activeOpacity={0.9}>
-        <Image source={{ uri: media.uri }} style={styles.previewImg} />
+        <Image
+          source={{ uri: media.uri }}
+          style={styles.previewImg}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={media.uri}
+        />
         <View style={styles.badge}>
           <Ionicons name={media.type === 'video' ? 'videocam' : 'image'} size={14} color="#0E0E12" />
         </View>

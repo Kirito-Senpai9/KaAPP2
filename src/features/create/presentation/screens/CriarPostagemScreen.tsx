@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootStackScreenProps } from '@/app/navigation/types';
@@ -71,7 +72,13 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
           <Text style={[styles.cardTitle, { marginTop: 18 }]}>Imagem (opcional)</Text>
           {media ? (
             <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={styles.mediaPreview}>
-              <Image source={{ uri: media }} style={styles.previewImg} />
+              <Image
+                source={{ uri: media }}
+                style={styles.previewImg}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={media}
+              />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={styles.mediaPlaceholder}>

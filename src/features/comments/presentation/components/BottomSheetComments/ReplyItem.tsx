@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { StyleSheet, Text, View } from 'react-native';
 import type { CommentNode, CommentListRow } from '@/features/comments/domain/entities/comment';
 import CommentActions from '@/features/comments/presentation/components/BottomSheetComments/CommentActions';
 import { formatRelativeTime } from '@/features/comments/presentation/components/BottomSheetComments/formatRelativeTime';
@@ -15,7 +16,13 @@ function ReplyItemComponent({ row, onReply, onLike }: ReplyItemProps) {
 
   return (
     <View style={styles.container}>
-      <Image source={{ uri: comment.author.avatar }} style={styles.avatar} />
+      <Image
+        source={{ uri: comment.author.avatar }}
+        style={styles.avatar}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={comment.author.avatar}
+      />
 
       <View style={styles.content}>
         <View style={styles.metaRow}>

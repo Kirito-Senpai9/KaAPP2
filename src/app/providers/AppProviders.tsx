@@ -1,6 +1,7 @@
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import QueryProvider from '@/app/providers/QueryProvider';
 
 type AppProvidersProps = {
   children: React.ReactNode;
@@ -9,7 +10,9 @@ type AppProvidersProps = {
 export default function AppProviders({ children }: AppProvidersProps) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
+      <QueryProvider>
+        <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
+      </QueryProvider>
     </GestureHandlerRootView>
   );
 }

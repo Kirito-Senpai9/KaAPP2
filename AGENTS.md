@@ -1,5 +1,20 @@
 ---
 
+## Boas praticas obrigatorias de performance
+
+- Antes de implementar qualquer feature nova, avaliar impacto em renderizacao, lista, imagem, animacao e cache.
+- Em listas criticas, preferir FlashList v2 ou BottomSheetFlashList em vez de FlatList comum.
+- Sempre usar keyExtractor estavel, getItemType quando fizer sentido e evitar renderItem recriado sem necessidade.
+- Preferir expo-image para imagens remotas e repetidas, com cache apropriado e recyclingKey em listas reciclaveis.
+- Preferir react-native-reanimated para animacoes interativas e de alta frequencia.
+- Evitar trabalho desnecessario na JS thread durante scroll, gesture ou animacao.
+- Memoizar itens de lista, handlers e valores derivados com React.memo, useCallback e useMemo quando houver ganho real.
+- Evitar estado global desnecessario; quando precisar compartilhar estado de UI, preferir stores pequenas e seletoras estaveis.
+- Para dados assincronos, preferir cache e deduplicacao com React Query antes de criar estados paralelos manuais.
+- Nao introduzir armazenamento nativo ou dependencias com requisito de build custom se o alvo principal for Expo Go, sem justificar claramente o tradeoff.
+- Toda mudanca orientada a performance deve manter a mesma UI, layout, navegacao e comportamento, salvo se o usuario aprovar mudanca visual ou funcional.
+- Ao finalizar uma alteracao de performance, validar com typecheck e fazer busca final por APIs legadas que deveriam ter sido substituidas.
+
 # INSTRUÇÕES OBRIGATÓRIAS PARA O AGENTE CODEX (AGENTS.md)
 
 ## Fluxo obrigatório ANTES de qualquer alteração de código

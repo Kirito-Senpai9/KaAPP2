@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   appendReply,
   countNestedComments,
@@ -41,14 +42,13 @@ export function useComments(
   initialCount = 0
 ): UseCommentsResult {
   const loadedPostIdRef = useRef<string | null>(null);
-  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [comments, setComments] = useState<CommentNode[]>([]);
   const [input, setInput] = useState('');
   const [replyingTo, setReplyingTo] = useState<CommentReplyTarget | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
-  const [isLoading, setIsLoading] = useState(false);
   const [baseCountOffset, setBaseCountOffset] = useState(0);
   const [initialCountSnapshot, setInitialCountSnapshot] = useState(initialCount);
+  const repositoryRef = useRef(getCommentsRepository());
 
   const resetTransientState = useCallback(() => {
     setInput('');
@@ -56,18 +56,32 @@ export function useComments(
     setExpandedThreads({});
   }, []);
 
-  useEffect(() => {
-    if (loadTimeoutRef.current) {
-      clearTimeout(loadTimeoutRef.current);
-      loadTimeoutRef.current = null;
-    }
+  const {
+    data: remoteComments = [],
+    isLoading,
+  } = useQuery({
+    queryKey: ['comments', postId],
+    queryFn: async () => {
+      if (!postId) {
+        return [];
+      }
 
+      await new Promise((resolve) => {
+        setTimeout(resolve, 180);
+      });
+
+      return repositoryRef.current.getCommentsByPostId(postId);
+    },
+    enabled: !!postId,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
     if (!postId) {
       loadedPostIdRef.current = null;
       setComments([]);
       setBaseCountOffset(0);
       setInitialCountSnapshot(0);
-      setIsLoading(false);
       resetTransientState();
       return;
     }
@@ -78,27 +92,19 @@ export function useComments(
 
     loadedPostIdRef.current = postId;
     resetTransientState();
-    setIsLoading(true);
     setComments([]);
     setInitialCountSnapshot(initialCount);
-
-    const nextComments = getCommentsRepository().getCommentsByPostId(postId);
-    const nextVisibleCount = countNestedComments(nextComments);
-    setBaseCountOffset(Math.max(0, initialCount - nextVisibleCount));
-
-    loadTimeoutRef.current = setTimeout(() => {
-      setComments(nextComments);
-      setIsLoading(false);
-      loadTimeoutRef.current = null;
-    }, 180);
-
-    return () => {
-      if (loadTimeoutRef.current) {
-        clearTimeout(loadTimeoutRef.current);
-        loadTimeoutRef.current = null;
-      }
-    };
   }, [initialCount, postId, resetTransientState]);
+
+  useEffect(() => {
+    if (!postId) {
+      return;
+    }
+
+    const nextVisibleCount = countNestedComments(remoteComments);
+    setBaseCountOffset(Math.max(0, initialCount - nextVisibleCount));
+    setComments(remoteComments);
+  }, [initialCount, postId, remoteComments]);
 
   const rows = useMemo(
     () => flattenComments(comments, expandedThreads),
