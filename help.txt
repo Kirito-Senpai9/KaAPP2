@@ -1,0 +1,13 @@
+Usage: ag-kit [options] [command]
+
+CLI tool to install and manage Antigravity Kit
+
+Options:
+  -v, --version     Display version number
+  -h, --help        display help for command
+
+Commands:
+  init [options]    Install .agent folder into your project
+  update [options]  Update .agent folder to the latest version
+  status [options]  Check installation status
+  help [command]    display help for command
