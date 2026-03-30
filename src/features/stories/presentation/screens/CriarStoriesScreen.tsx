@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView
 } from 'react-native';
@@ -10,13 +10,38 @@ import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 
-export default function CriarStories({ navigation }: RootStackScreenProps<'CriarStories'>) {
-  const [media, setMedia] = useState<{ uri: string; type: 'image'|'video' } | null>(null);
-  const [caption, setCaption] = useState('');
+export default function CriarStories({
+  navigation,
+  route,
+}: RootStackScreenProps<'CriarStories'>) {
+  const [media, setMedia] = useState<{ uri: string; type: 'image'|'video' } | null>(() => {
+    if (!route.params?.uri || !route.params.type) {
+      return null;
+    }
+
+    return {
+      uri: route.params.uri,
+      type: route.params.type,
+    };
+  });
+  const [caption, setCaption] = useState(route.params?.caption ?? '');
   const [audience, setAudience] = useState<'publico'|'amigos'|'privado'>('publico');
 
   const canPublish = !!media;
   const publishScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (route.params?.uri && route.params.type) {
+      setMedia({
+        uri: route.params.uri,
+        type: route.params.type,
+      });
+    } else {
+      setMedia(null);
+    }
+
+    setCaption(route.params?.caption ?? '');
+  }, [route.params?.caption, route.params?.type, route.params?.uri]);
 
   const pickMedia = async () => {
     // imagens ou vídeos curtos; validação de duração fica para o backend

@@ -12,6 +12,7 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
 import { BottomSheetComments, type CommentPostPreview } from '@/features/comments';
+import { BottomSheetShare, type SharePostPreview } from '@/features/share';
 import { useStories } from '@/features/stories';
 import type { Post } from '@/features/feed/domain/entities/post';
 import { useFeed } from '@/features/feed/presentation/hooks/useFeed';
@@ -116,16 +117,20 @@ const FeedStoriesHeader = memo(function FeedStoriesHeader({
 type PostCardProps = {
   item: Post;
   commentCount: number;
+  shareCount: number;
   isVisible: boolean;
   onOpenComments: (post: Post) => void;
+  onOpenShare: (post: Post) => void;
   onOpenContextMenu: (post: Post, anchor: MenuAnchor) => void;
 };
 
 const PostCard = memo(function PostCard({
   item,
   commentCount,
+  shareCount,
   isVisible,
   onOpenComments,
+  onOpenShare,
   onOpenContextMenu,
 }: PostCardProps) {
   const [liked, setLiked] = useState(false);
@@ -178,6 +183,7 @@ const PostCard = memo(function PostCard({
       Animated.timing(shareX, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(shareX, { toValue: 0, duration: 220, easing: Easing.in(Easing.cubic),  useNativeDriver: true }),
     ]).start();
+    onOpenShare(item);
   };
 
   const handleRepost = () => {
@@ -438,7 +444,7 @@ const PostCard = memo(function PostCard({
             >
               <Ionicons name="paper-plane-outline" size={22} color="#E5E7F4" />
             </TouchableOpacity>
-            <Text style={styles.actionCount}>{formatCount(item.shares)}</Text>
+            <Text style={styles.actionCount}>{formatCount(shareCount)}</Text>
           </Animated.View>
         </View>
 
@@ -471,12 +477,17 @@ export default function Home() {
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
   const menuData = useFeedUiStore((state) => state.menuData);
   const commentsPost = useFeedUiStore((state) => state.commentsPost);
+  const sharePost = useFeedUiStore((state) => state.sharePost);
   const commentCountOverrides = useFeedUiStore((state) => state.commentCountOverrides);
+  const shareCountOverrides = useFeedUiStore((state) => state.shareCountOverrides);
   const storeOpenComments = useFeedUiStore((state) => state.openComments);
   const storeCloseComments = useFeedUiStore((state) => state.closeComments);
+  const storeOpenShare = useFeedUiStore((state) => state.openShare);
+  const storeCloseShare = useFeedUiStore((state) => state.closeShare);
   const storeOpenContextMenu = useFeedUiStore((state) => state.openContextMenu);
   const storeCloseContextMenu = useFeedUiStore((state) => state.closeContextMenu);
   const syncCommentCount = useFeedUiStore((state) => state.syncCommentCount);
+  const syncShareCount = useFeedUiStore((state) => state.syncShareCount);
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuScale = useRef(new Animated.Value(0.95)).current;
 
@@ -509,6 +520,14 @@ export default function Home() {
   const closeComments = useCallback(() => {
     storeCloseComments();
   }, [storeCloseComments]);
+
+  const openShare = useCallback((post: Post) => {
+    storeOpenShare(post);
+  }, [storeOpenShare]);
+
+  const closeShare = useCallback(() => {
+    storeCloseShare();
+  }, [storeCloseShare]);
 
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
     menuOpacity.setValue(0);
@@ -546,6 +565,17 @@ export default function Home() {
 
     return () => subscription.remove();
   }, [closeComments, commentsPost]);
+
+  useEffect(() => {
+    if (!sharePost) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeShare();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [closeShare, sharePost]);
 
   const menuPosition = useMemo(() => {
     if (!menuData) return { top: 0, left: 0 };
@@ -592,26 +622,37 @@ export default function Home() {
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
       const commentCount = commentCountOverrides[item.id] ?? item.comments;
+      const shareCount = shareCountOverrides[item.id] ?? item.shares;
 
       return (
         <PostCard
           item={item}
           commentCount={commentCount}
+          shareCount={shareCount}
           isVisible={visiblePostIds.includes(item.id)}
           onOpenComments={openComments}
+          onOpenShare={openShare}
           onOpenContextMenu={openContextMenu}
         />
       );
     },
-    [commentCountOverrides, openComments, openContextMenu, visiblePostIds]
+    [
+      commentCountOverrides,
+      openComments,
+      openContextMenu,
+      openShare,
+      shareCountOverrides,
+      visiblePostIds,
+    ]
   );
 
   const feedExtraData = useMemo(
     () => ({
       commentCountOverrides,
+      shareCountOverrides,
       visiblePostIds,
     }),
-    [commentCountOverrides, visiblePostIds]
+    [commentCountOverrides, shareCountOverrides, visiblePostIds]
   );
 
   const commentsSheetPost = useMemo<CommentPostPreview | null>(() => {
@@ -631,6 +672,36 @@ export default function Home() {
     ? commentCountOverrides[commentsPost.id] ?? commentsPost.comments
     : 0;
 
+  const shareSheetPost = useMemo<SharePostPreview | null>(() => {
+    if (!sharePost) {
+      return null;
+    }
+
+    const isImage = sharePost.type === 'image';
+    const isVideo =
+      sharePost.type === 'video-horizontal' ||
+      sharePost.type === 'video-vertical';
+
+    return {
+      id: sharePost.id,
+      authorName: sharePost.user,
+      authorAvatar: sharePost.avatar,
+      text: sharePost.text,
+      mediaUri: isImage ? sharePost.image : isVideo ? sharePost.video : undefined,
+      mediaType: isImage ? 'image' : isVideo ? 'video' : undefined,
+      caption: sharePost.text,
+    };
+  }, [sharePost]);
+
+  const postsById = useMemo(
+    () =>
+      posts.reduce<Record<string, Post>>((accumulator, post) => {
+        accumulator[post.id] = post;
+        return accumulator;
+      }, {}),
+    [posts]
+  );
+
   const handleCommentCountChange = useCallback(
     (count: number) => {
       if (!commentsPost) {
@@ -640,6 +711,16 @@ export default function Home() {
       syncCommentCount(commentsPost.id, count);
     },
     [commentsPost, syncCommentCount]
+  );
+
+  const handleShareIncrement = useCallback(
+    (postId: string, amount: number) => {
+      const currentCount =
+        shareCountOverrides[postId] ?? postsById[postId]?.shares ?? 0;
+
+      syncShareCount(postId, currentCount + amount);
+    },
+    [postsById, shareCountOverrides, syncShareCount]
   );
 
   const feedHeader = useMemo(
@@ -681,6 +762,13 @@ export default function Home() {
         autoFocusOnOpen
         initialCount={activeCommentCount}
         onCountChange={handleCommentCountChange}
+      />
+
+      <BottomSheetShare
+        visible={!!sharePost}
+        post={shareSheetPost}
+        onClose={closeShare}
+        onShareIncrement={handleShareIncrement}
       />
 
 

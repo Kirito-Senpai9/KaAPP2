@@ -18,11 +18,17 @@ export type StoryViewerParams = {
   initialStoryIndex: number;
 };
 
+export type CreateStoryPrefillParams = {
+  uri?: string;
+  type?: StoryMediaType;
+  caption?: string;
+};
+
 export type RootStackParamList = {
   TelaLogin: undefined;
   RootTabs: undefined;
   StoryViewer: StoryViewerParams;
-  CriarStories: undefined;
+  CriarStories: CreateStoryPrefillParams | undefined;
   CriarPostagem: undefined;
   CriarShorts: undefined;
   LiveSetup: undefined;
