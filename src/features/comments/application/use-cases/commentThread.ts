@@ -95,6 +95,12 @@ export function flattenComments(
     if (repliesCount > 0) {
       const expanded = !!expandedThreads[comment.id];
 
+      if (expanded) {
+        rows.push(
+          ...flattenComments(comment.replies, expandedThreads, depth + 1, comment.id)
+        );
+      }
+
       rows.push({
         id: `toggle-${comment.id}`,
         type: 'thread-toggle',
@@ -102,12 +108,6 @@ export function flattenComments(
         expanded,
         repliesCount,
       });
-
-      if (expanded) {
-        rows.push(
-          ...flattenComments(comment.replies, expandedThreads, depth + 1, comment.id)
-        );
-      }
     }
 
     return rows;

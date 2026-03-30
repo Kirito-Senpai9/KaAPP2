@@ -4,6 +4,7 @@ import {
   BottomSheetTextInput,
   type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
+import type { LayoutChangeEvent } from 'react-native';
 import type {
   CommentAuthor,
   CommentReplyTarget,
@@ -22,6 +23,7 @@ type ComposerFooterSnapshot = {
   onCancelReply: () => void;
   onSend: () => void;
   onSendPressIn: () => void;
+  onLayout: (event: LayoutChangeEvent) => void;
 };
 
 type Listener = () => void;
@@ -74,6 +76,7 @@ const CommentsComposerFooter = memo(function CommentsComposerFooter(
         onCancelReply={snapshot.onCancelReply}
         onSend={snapshot.onSend}
         onSendPressIn={snapshot.onSendPressIn}
+        onLayout={snapshot.onLayout}
       />
     </BottomSheetFooter>
   );

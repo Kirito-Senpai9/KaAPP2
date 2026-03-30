@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   InteractionManager,
   Keyboard,
+  type LayoutChangeEvent,
   StyleSheet,
   Text,
   View,
@@ -10,7 +11,6 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetTextInput,
-  BottomSheetView,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
 import CommentList from '@/features/comments/presentation/components/BottomSheetComments/CommentList';
@@ -75,6 +75,7 @@ export default function BottomSheetComments({
     resetTransientState,
   } = useComments(post?.id ?? null, initialCount);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
 
   const clearPendingFocus = useCallback(() => {
     focusTaskRef.current?.cancel();
@@ -191,15 +192,6 @@ export default function BottomSheetComments({
     }
   }, [clearRetainedFocus, ensureComposerFocused, sendComment]);
 
-  const handleScrollBeginDrag = useCallback(() => {
-    shouldAutoFocusRef.current = false;
-    clearRetainedFocus();
-    clearPendingFocus();
-    setIsComposerFocused(false);
-    inputRef.current?.blur();
-    Keyboard.dismiss();
-  }, [clearPendingFocus, clearRetainedFocus]);
-
   const handleSheetChange = useCallback(
     (index: number) => {
       isAtFinalSnapRef.current = index === lastSnapIndex;
@@ -314,6 +306,12 @@ export default function BottomSheetComments({
       onCancelReply: cancelReply,
       onSend: handleSend,
       onSendPressIn: handleSendPressIn,
+      onLayout: (event: LayoutChangeEvent) => {
+        const nextComposerHeight = Math.ceil(event.nativeEvent.layout.height);
+        setComposerHeight((currentHeight) => (
+          currentHeight === nextComposerHeight ? currentHeight : nextComposerHeight
+        ));
+      },
     });
   }, [
     cancelReply,
@@ -329,6 +327,16 @@ export default function BottomSheetComments({
     setInput,
     visible,
   ]);
+
+  const listHeader = useMemo(
+    () => (
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Comentarios - {totalCount}</Text>
+        {!!post && <Text style={styles.headerSubtitle}>Post de {post.authorName}</Text>}
+      </View>
+    ),
+    [post, totalCount]
+  );
 
   return (
     <BottomSheetModal
@@ -357,44 +365,38 @@ export default function BottomSheetComments({
       backgroundStyle={styles.sheetBackground}
       footerComponent={CommentsComposerFooter}
     >
-      <BottomSheetView style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Comentarios - {totalCount}</Text>
-          {!!post && <Text style={styles.headerSubtitle}>Post de {post.authorName}</Text>}
-        </View>
+      <CommentList
+        listRef={listRef}
+        rows={rows}
+        isLoading={isLoading}
+        header={listHeader}
+        bottomSpacer={composerHeight + 12}
+        onReply={handleReply}
+        onLike={toggleLike}
+        onToggleThread={toggleThread}
+        onScrollToIndexFailed={(info: {
+          index: number;
+          highestMeasuredFrameIndex: number;
+          averageItemLength: number;
+        }) => {
+          const targetIndex = pendingScrollIndexRef.current ?? info.index;
 
-        <CommentList
-          listRef={listRef}
-          rows={rows}
-          isLoading={isLoading}
-          onReply={handleReply}
-          onLike={toggleLike}
-          onToggleThread={toggleThread}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollToIndexFailed={(info: {
-            index: number;
-            highestMeasuredFrameIndex: number;
-            averageItemLength: number;
-          }) => {
-            const targetIndex = pendingScrollIndexRef.current ?? info.index;
-
-            requestAnimationFrame(() => {
-              listRef.current?.scrollToOffset?.({
-                offset: Math.max(0, info.averageItemLength * targetIndex),
-                animated: false,
-              });
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToOffset?.({
+              offset: Math.max(0, info.averageItemLength * targetIndex),
+              animated: false,
             });
+          });
 
-            setTimeout(() => {
-              listRef.current?.scrollToIndex?.({
-                index: targetIndex,
-                animated: true,
-                viewPosition: 1,
-              });
-            }, 60);
-          }}
-        />
-      </BottomSheetView>
+          setTimeout(() => {
+            listRef.current?.scrollToIndex?.({
+              index: targetIndex,
+              animated: true,
+              viewPosition: 1,
+            });
+          }, 60);
+        }}
+      />
     </BottomSheetModal>
   );
 }
@@ -412,9 +414,6 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 99,
     backgroundColor: 'rgba(220,227,255,0.45)',
-  },
-  content: {
-    flex: 1,
   },
   header: {
     paddingHorizontal: 16,

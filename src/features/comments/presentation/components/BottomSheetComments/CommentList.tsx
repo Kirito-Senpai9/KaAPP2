@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, type ReactElement } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   BottomSheetFlatList,
@@ -18,12 +18,13 @@ type CommentListProps = {
   onReply: (comment: CommentNode) => void;
   onLike: (commentId: string) => void;
   onToggleThread: (commentId: string) => void;
-  onScrollBeginDrag: () => void;
   onScrollToIndexFailed: (info: {
     index: number;
     highestMeasuredFrameIndex: number;
     averageItemLength: number;
   }) => void;
+  header: ReactElement | null;
+  bottomSpacer: number;
 };
 
 function CommentListComponent({
@@ -33,12 +34,14 @@ function CommentListComponent({
   onReply,
   onLike,
   onToggleThread,
-  onScrollBeginDrag,
   onScrollToIndexFailed,
+  header,
+  bottomSpacer,
 }: CommentListProps) {
   if (isLoading) {
     return (
       <BottomSheetView style={styles.skeletonList} enableFooterMarginAdjustment>
+        {header}
         {Array.from({ length: 4 }).map((_, index) => (
           <View
             key={`skeleton-${index}`}
@@ -103,12 +106,15 @@ function CommentListComponent({
         );
       }}
       style={styles.list}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[
+        styles.listContent,
+        { paddingBottom: bottomSpacer },
+      ]}
+      ListHeaderComponent={header}
       enableFooterMarginAdjustment
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       removeClippedSubviews={Platform.OS === 'android'}
-      onScrollBeginDrag={onScrollBeginDrag}
       onScrollToIndexFailed={onScrollToIndexFailed}
     />
   );

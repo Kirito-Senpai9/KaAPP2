@@ -1,6 +1,7 @@
 import React, { forwardRef } from 'react';
 import { Image } from 'expo-image';
 import {
+  type LayoutChangeEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -25,6 +26,7 @@ type CommentInputProps = {
   onCancelReply: () => void;
   onSend: () => void;
   onSendPressIn: () => void;
+  onLayout?: (event: LayoutChangeEvent) => void;
 };
 
 const CommentInput = forwardRef<
@@ -42,6 +44,7 @@ const CommentInput = forwardRef<
     onCancelReply,
     onSend,
     onSendPressIn,
+    onLayout,
   },
   ref
 ) {
@@ -55,6 +58,7 @@ const CommentInput = forwardRef<
           paddingBottom: bottomPadding,
         },
       ]}
+      onLayout={onLayout}
     >
       {!!replyingTo && (
         <View style={styles.replyBadge}>
