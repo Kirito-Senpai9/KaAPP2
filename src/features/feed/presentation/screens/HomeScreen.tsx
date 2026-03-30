@@ -1,9 +1,8 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Dimensions, ImageBackground, Easing, Modal, Pressable, BackHandler
+  Animated, Dimensions, ImageBackground, Easing, Modal, Pressable, BackHandler, ScrollView, FlatList
 } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -23,6 +22,20 @@ import {
 import { formatCount } from '@/shared/utils/formatCount';
 
 const { width } = Dimensions.get('window');
+
+function areIdsEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 /* --- Stories (rola junto no header) --- */
 const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; onPress: () => void }) {
@@ -64,6 +77,38 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
         </ImageBackground>
       </TouchableOpacity>
     </Animated.View>
+  );
+});
+
+const FeedStoriesHeader = memo(function FeedStoriesHeader({
+  stories,
+  onOpenStory,
+}: {
+  stories: StoryUser[];
+  onOpenStory: (userIndex: number) => void;
+}) {
+  const storyCards = useMemo(
+    () =>
+      stories.map((story, index) => (
+        <StoryCard
+          key={story.id}
+          item={story}
+          onPress={() => onOpenStory(index)}
+        />
+      )),
+    [onOpenStory, stories]
+  );
+
+  return (
+    <View style={styles.storiesWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.storyListContent}
+      >
+        {storyCards}
+      </ScrollView>
+    </View>
   );
 });
 
@@ -449,7 +494,10 @@ export default function Home() {
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
     const ids = viewableItems.map((entry) => entry.item.id);
-    setVisiblePostIds(ids);
+
+    setVisiblePostIds((previousIds) => (
+      areIdsEqual(previousIds, ids) ? previousIds : ids
+    ));
   }).current;
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65 }).current;
@@ -558,6 +606,14 @@ export default function Home() {
     [commentCountOverrides, openComments, openContextMenu, visiblePostIds]
   );
 
+  const feedExtraData = useMemo(
+    () => ({
+      commentCountOverrides,
+      visiblePostIds,
+    }),
+    [commentCountOverrides, visiblePostIds]
+  );
+
   const commentsSheetPost = useMemo<CommentPostPreview | null>(() => {
     if (!commentsPost) {
       return null;
@@ -575,18 +631,20 @@ export default function Home() {
     ? commentCountOverrides[commentsPost.id] ?? commentsPost.comments
     : 0;
 
-  const FeedHeader = () => (
-    <View style={styles.storiesWrap}>
-      <FlashList
-        horizontal
-        data={stories}
-        drawDistance={width}
-        keyExtractor={(s) => s.id}
-        renderItem={({ item, index }) => <StoryCard item={item} onPress={() => openStoryViewer(index)} />}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.storyListContent}
-      />
-    </View>
+  const handleCommentCountChange = useCallback(
+    (count: number) => {
+      if (!commentsPost) {
+        return;
+      }
+
+      syncCommentCount(commentsPost.id, count);
+    },
+    [commentsPost, syncCommentCount]
+  );
+
+  const feedHeader = useMemo(
+    () => <FeedStoriesHeader stories={stories} onOpenStory={openStoryViewer} />,
+    [openStoryViewer, stories]
   );
 
   return (
@@ -603,13 +661,12 @@ export default function Home() {
       </View>
 
       {/* Feed: Stories no header (sobem juntos) */}
-      <FlashList
+      <FlatList
         data={posts}
-        drawDistance={width * 2}
         keyExtractor={(p) => p.id}
         renderItem={renderPost}
-        getItemType={() => 'post'}
-        ListHeaderComponent={FeedHeader}
+        ListHeaderComponent={feedHeader}
+        extraData={feedExtraData}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.feedContent}
         removeClippedSubviews={false}
@@ -623,11 +680,7 @@ export default function Home() {
         onClose={closeComments}
         autoFocusOnOpen
         initialCount={activeCommentCount}
-        onCountChange={(count) => {
-          if (commentsPost) {
-            syncCommentCount(commentsPost.id, count);
-          }
-        }}
+        onCountChange={handleCommentCountChange}
       />
 
 

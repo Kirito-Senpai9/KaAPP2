@@ -310,7 +310,13 @@ export default function Shorts() {
   const onViewableItemsChanged = useRef<NonNullable<FlashListProps<Short>['onViewableItemsChanged']>>(({ viewableItems }) => {
     const viewableItem = viewableItems.find((token: ViewToken<Short>) => token.isViewable);
 
-    if (isShort(viewableItem?.item)) setActiveId(viewableItem.item.id);
+    if (!isShort(viewableItem?.item)) {
+      return;
+    }
+
+    setActiveId((currentId) => (
+      currentId === viewableItem.item.id ? currentId : viewableItem.item.id
+    ));
   }).current;
 
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 80 });

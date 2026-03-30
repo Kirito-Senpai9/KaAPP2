@@ -174,10 +174,31 @@ function fixtureToNode(fixture: CommentFixture): CommentNode {
   };
 }
 
+const commentsStore = new Map<string, CommentNode[]>();
+
+function getInitialComments(postId: string) {
+  const fixtures = COMMENT_FIXTURES[postId] ?? COMMENT_FIXTURES.p1;
+  return fixtures.map(fixtureToNode);
+}
+
+function ensureComments(postId: string) {
+  const existingComments = commentsStore.get(postId);
+
+  if (existingComments) {
+    return existingComments;
+  }
+
+  const initialComments = getInitialComments(postId);
+  commentsStore.set(postId, initialComments);
+  return initialComments;
+}
+
 const mockCommentsRepository: CommentsRepository = {
   getCommentsByPostId(postId) {
-    const fixtures = COMMENT_FIXTURES[postId] ?? COMMENT_FIXTURES.p1;
-    return fixtures.map(fixtureToNode);
+    return ensureComments(postId);
+  },
+  saveCommentsByPostId(postId, comments) {
+    commentsStore.set(postId, comments);
   },
 };
 

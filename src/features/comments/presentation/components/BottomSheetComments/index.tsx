@@ -230,12 +230,12 @@ export default function BottomSheetComments({
   }, [clearPendingFocus, clearRetainedFocus, onClose, resetTransientState]);
 
   useEffect(() => {
-    if (!post || !onCountChange || isLoading) {
+    if (!visible || !post || !onCountChange || isLoading) {
       return;
     }
 
     onCountChange(totalCount);
-  }, [isLoading, onCountChange, post, totalCount]);
+  }, [isLoading, onCountChange, post, totalCount, visible]);
 
   useEffect(() => {
     if (!visible || !post) {

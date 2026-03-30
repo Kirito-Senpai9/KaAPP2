@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   appendReply,
   countNestedComments,
@@ -37,18 +37,21 @@ export const CURRENT_COMMENT_USER: CommentAuthor = {
   avatar: 'https://i.pravatar.cc/120?img=15',
 };
 
+const EMPTY_COMMENTS: CommentNode[] = [];
+
 export function useComments(
   postId: string | null,
   initialCount = 0
 ): UseCommentsResult {
-  const loadedPostIdRef = useRef<string | null>(null);
-  const [comments, setComments] = useState<CommentNode[]>([]);
+  const queryClient = useQueryClient();
+  const sessionPostIdRef = useRef<string | null>(null);
   const [input, setInput] = useState('');
   const [replyingTo, setReplyingTo] = useState<CommentReplyTarget | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
-  const [baseCountOffset, setBaseCountOffset] = useState(0);
   const [initialCountSnapshot, setInitialCountSnapshot] = useState(initialCount);
+  const [sessionBaselineVisibleCount, setSessionBaselineVisibleCount] = useState<number | null>(null);
   const repositoryRef = useRef(getCommentsRepository());
+  const commentsQueryKey = useMemo(() => ['comments', postId] as const, [postId]);
 
   const resetTransientState = useCallback(() => {
     setInput('');
@@ -56,14 +59,11 @@ export function useComments(
     setExpandedThreads({});
   }, []);
 
-  const {
-    data: remoteComments = [],
-    isLoading,
-  } = useQuery({
-    queryKey: ['comments', postId],
+  const query = useQuery({
+    queryKey: commentsQueryKey,
     queryFn: async () => {
       if (!postId) {
-        return [];
+        return EMPTY_COMMENTS;
       }
 
       await new Promise((resolve) => {
@@ -75,36 +75,35 @@ export function useComments(
     enabled: !!postId,
     staleTime: Infinity,
   });
+  const comments = query.data ?? EMPTY_COMMENTS;
+  const isLoading = query.isLoading;
 
   useEffect(() => {
     if (!postId) {
-      loadedPostIdRef.current = null;
-      setComments([]);
-      setBaseCountOffset(0);
+      sessionPostIdRef.current = null;
       setInitialCountSnapshot(0);
+      setSessionBaselineVisibleCount(null);
       resetTransientState();
       return;
     }
 
-    if (loadedPostIdRef.current === postId) {
+    if (sessionPostIdRef.current === postId) {
       return;
     }
 
-    loadedPostIdRef.current = postId;
+    sessionPostIdRef.current = postId;
     resetTransientState();
-    setComments([]);
     setInitialCountSnapshot(initialCount);
+    setSessionBaselineVisibleCount(null);
   }, [initialCount, postId, resetTransientState]);
 
   useEffect(() => {
-    if (!postId) {
+    if (!postId || isLoading || sessionBaselineVisibleCount !== null) {
       return;
     }
 
-    const nextVisibleCount = countNestedComments(remoteComments);
-    setBaseCountOffset(Math.max(0, initialCount - nextVisibleCount));
-    setComments(remoteComments);
-  }, [initialCount, postId, remoteComments]);
+    setSessionBaselineVisibleCount(countNestedComments(comments));
+  }, [comments, isLoading, postId, sessionBaselineVisibleCount]);
 
   const rows = useMemo(
     () => flattenComments(comments, expandedThreads),
@@ -112,10 +111,35 @@ export function useComments(
   );
 
   const visibleCount = useMemo(() => countNestedComments(comments), [comments]);
+  const baselineVisibleCount = sessionBaselineVisibleCount ?? visibleCount;
+  const baseCountOffset = useMemo(
+    () => Math.max(0, initialCountSnapshot - baselineVisibleCount),
+    [baselineVisibleCount, initialCountSnapshot]
+  );
   const totalCount = useMemo(() => {
     const computed = baseCountOffset + visibleCount;
     return isLoading ? Math.max(initialCountSnapshot, computed) : computed;
   }, [baseCountOffset, initialCountSnapshot, isLoading, visibleCount]);
+
+  const updateComments = useCallback(
+    (updater: (currentComments: CommentNode[]) => CommentNode[]) => {
+      if (!postId) {
+        return EMPTY_COMMENTS;
+      }
+
+      let nextComments = EMPTY_COMMENTS;
+      queryClient.setQueryData(commentsQueryKey, (currentComments?: CommentNode[]) => {
+        const resolvedComments =
+          currentComments ?? repositoryRef.current.getCommentsByPostId(postId);
+        nextComments = updater(resolvedComments);
+        repositoryRef.current.saveCommentsByPostId(postId, nextComments);
+        return nextComments;
+      });
+
+      return nextComments;
+    },
+    [commentsQueryKey, postId, queryClient]
+  );
 
   const replyToComment = useCallback((comment: CommentNode) => {
     setReplyingTo({
@@ -129,8 +153,10 @@ export function useComments(
   }, []);
 
   const toggleLike = useCallback((commentId: string) => {
-    setComments((currentComments) => toggleCommentLike(currentComments, commentId));
-  }, []);
+    updateComments((currentComments) =>
+      toggleCommentLike(currentComments, commentId)
+    );
+  }, [updateComments]);
 
   const toggleThread = useCallback((commentId: string) => {
     setExpandedThreads((currentThreads) => ({
@@ -158,7 +184,7 @@ export function useComments(
     };
 
     if (replyingTo) {
-      setComments((currentComments) =>
+      updateComments((currentComments) =>
         appendReply(currentComments, replyingTo.id, nextComment)
       );
       setExpandedThreads((currentThreads) => ({
@@ -166,13 +192,13 @@ export function useComments(
         [replyingTo.id]: true,
       }));
     } else {
-      setComments((currentComments) => [nextComment, ...currentComments]);
+      updateComments((currentComments) => [nextComment, ...currentComments]);
     }
 
     setInput('');
     setReplyingTo(null);
     return nextComment.id;
-  }, [input, replyingTo]);
+  }, [input, replyingTo, updateComments]);
 
   return {
     currentUser: CURRENT_COMMENT_USER,

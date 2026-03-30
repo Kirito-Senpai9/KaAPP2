@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  BottomSheetFlashList,
+  BottomSheetFlatList,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
 import type {
@@ -61,11 +61,10 @@ function CommentListComponent({
   }
 
   return (
-    <BottomSheetFlashList
+    <BottomSheetFlatList
       ref={listRef}
       data={rows}
       keyExtractor={(item: CommentListRow) => item.id}
-      getItemType={(item: CommentListRow) => item.type}
       renderItem={({ item, index }: { item: CommentListRow; index: number }) => {
         if (item.type === 'thread-toggle') {
           return (
