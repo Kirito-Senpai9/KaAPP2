@@ -27,6 +27,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
+import { createCachedVideoSource } from '@/shared/constants/demoMedia';
 
 type Props = RootStackScreenProps<'StoryViewer'>;
 
@@ -49,6 +50,7 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [emojiInsertFx, setEmojiInsertFx] = useState<string | null>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [hasVideoError, setHasVideoError] = useState(false);
   const [isPressPaused, setIsPressPaused] = useState(false);
   const [likedStories, setLikedStories] = useState<Record<string, boolean>>({});
 
@@ -78,6 +80,13 @@ export default function StoryViewer({ route, navigation }: Props) {
   const isCurrentStoryLiked = currentStory
     ? !!likedStories[currentStory.id]
     : false;
+  const currentVideoSource = useMemo(
+    () =>
+      currentStory?.type === 'video'
+        ? createCachedVideoSource(currentStory.uri)
+        : null,
+    [currentStory?.id, currentStory?.type, currentStory?.uri]
+  );
 
   const clearStoryTimer = useCallback(() => {
     if (storyTimerRef.current) {
@@ -285,6 +294,7 @@ export default function StoryViewer({ route, navigation }: Props) {
     setVideoDurationMs(0);
     setVideoPositionMs(0);
     setIsVideoReady(currentStory.type !== 'video');
+    setHasVideoError(false);
     progress.stopAnimation();
     progress.setValue(0);
 
@@ -321,7 +331,7 @@ export default function StoryViewer({ route, navigation }: Props) {
         try {
           if (videoSourceKeyRef.current !== nextSource) {
             videoSourceKeyRef.current = nextSource;
-            await videoPlayer.replaceAsync({ uri: nextSource });
+            await videoPlayer.replaceAsync(currentVideoSource);
           }
 
           if (isStale) return;
@@ -335,7 +345,8 @@ export default function StoryViewer({ route, navigation }: Props) {
           }
         } catch {
           if (!isStale) {
-            setIsVideoReady(true);
+            setHasVideoError(true);
+            setIsVideoReady(false);
           }
         }
       };
@@ -360,6 +371,7 @@ export default function StoryViewer({ route, navigation }: Props) {
     isMuted,
     isPaused,
     navigation,
+    currentVideoSource,
     progress,
     startImageProgress,
     videoPlayer,
@@ -396,9 +408,27 @@ export default function StoryViewer({ route, navigation }: Props) {
   ]);
 
   useEffect(() => {
+    if (currentStory?.type !== 'video') return;
+
+    const statusSubscription = videoPlayer.addListener(
+      'statusChange',
+      ({ status, error }) => {
+        if (error) {
+          setHasVideoError(true);
+          setIsVideoReady(false);
+          return;
+        }
+
+        if (status === 'readyToPlay') {
+          setHasVideoError(false);
+          setIsVideoReady(true);
+        }
+      }
+    );
     const sourceLoadSubscription = videoPlayer.addListener(
       'sourceLoad',
       ({ duration }) => {
+        setHasVideoError(false);
         setVideoDurationMs(Math.max(duration, 0) * 1000);
       }
     );
@@ -418,11 +448,12 @@ export default function StoryViewer({ route, navigation }: Props) {
     });
 
     return () => {
+      statusSubscription.remove();
       sourceLoadSubscription.remove();
       timeUpdateSubscription.remove();
       playToEndSubscription.remove();
     };
-  }, [goNext, progress, videoPlayer]);
+  }, [currentStory?.id, currentStory?.type, goNext, progress, videoPlayer]);
 
   useEffect(() => {
     if (currentStory?.type !== 'video') return;
@@ -431,17 +462,17 @@ export default function StoryViewer({ route, navigation }: Props) {
   }, [currentStory?.type, isMuted, videoPlayer]);
 
   useEffect(() => {
-    if (currentStory?.type !== 'video') return;
+    if (currentStory?.type !== 'video' || hasVideoError) return;
 
     if (isPaused) {
       videoPlayer.pause();
       return;
     }
 
-    if (videoPlayer.status === 'readyToPlay') {
+    if (isVideoReady) {
       videoPlayer.play();
     }
-  }, [currentStory?.id, currentStory?.type, isPaused, videoPlayer]);
+  }, [currentStory?.id, currentStory?.type, hasVideoError, isPaused, isVideoReady, videoPlayer]);
 
   useEffect(() => {
     if (currentUserIndex === previousUserIndexRef.current) return;
@@ -603,9 +634,12 @@ export default function StoryViewer({ route, navigation }: Props) {
               nativeControls={false}
               surfaceType="textureView"
               useExoShutter={false}
-              onFirstFrameRender={() => setIsVideoReady(true)}
+              onFirstFrameRender={() => {
+                setIsVideoReady(true);
+                setHasVideoError(false);
+              }}
             />
-            {!!currentStory.thumbnail && !isVideoReady && (
+            {!!currentStory.thumbnail && (!isVideoReady || hasVideoError) && (
               <Image
                 source={{ uri: currentStory.thumbnail }}
                 style={styles.media}

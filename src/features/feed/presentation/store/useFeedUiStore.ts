@@ -19,6 +19,7 @@ type FeedUiStore = {
   sharePost: Post | null;
   commentCountOverrides: Record<string, number>;
   shareCountOverrides: Record<string, number>;
+  followOverridesByAuthor: Record<string, boolean>;
   openComments: (post: Post) => void;
   closeComments: () => void;
   openShare: (post: Post) => void;
@@ -27,6 +28,7 @@ type FeedUiStore = {
   closeContextMenu: () => void;
   syncCommentCount: (postId: string, count: number) => void;
   syncShareCount: (postId: string, count: number) => void;
+  setAuthorFollowState: (authorId: string, isFollowing: boolean) => void;
 };
 
 export const useFeedUiStore = create<FeedUiStore>((set) => ({
@@ -35,6 +37,7 @@ export const useFeedUiStore = create<FeedUiStore>((set) => ({
   sharePost: null,
   commentCountOverrides: {},
   shareCountOverrides: {},
+  followOverridesByAuthor: {},
   openComments: (post) => set({ commentsPost: post }),
   closeComments: () => set({ commentsPost: null }),
   openShare: (post) => set({ sharePost: post }),
@@ -64,6 +67,19 @@ export const useFeedUiStore = create<FeedUiStore>((set) => ({
         shareCountOverrides: {
           ...state.shareCountOverrides,
           [postId]: count,
+        },
+      };
+    }),
+  setAuthorFollowState: (authorId, isFollowing) =>
+    set((state) => {
+      if (state.followOverridesByAuthor[authorId] === isFollowing) {
+        return state;
+      }
+
+      return {
+        followOverridesByAuthor: {
+          ...state.followOverridesByAuthor,
+          [authorId]: isFollowing,
         },
       };
     }),

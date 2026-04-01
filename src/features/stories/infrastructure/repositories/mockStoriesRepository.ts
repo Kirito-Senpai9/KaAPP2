@@ -1,5 +1,6 @@
 import type { Story } from '@/features/stories/domain/entities/story';
 import type { StoriesRepository } from '@/features/stories/domain/repositories/storiesRepository';
+import { DEMO_VIDEO_URLS } from '@/shared/constants/demoMedia';
 
 export const STORIES: Story[] = [
   {
@@ -16,7 +17,9 @@ export const STORIES: Story[] = [
       {
         id: '1-2',
         type: 'video',
-        uri: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+        uri: DEMO_VIDEO_URLS.verticalFeed,
+        thumbnail:
+          'https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=1200&q=80&auto=format&fit=crop',
         postedAt: 'agora',
       },
     ],
@@ -48,7 +51,9 @@ export const STORIES: Story[] = [
       {
         id: '3-1',
         type: 'video',
-        uri: 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        uri: DEMO_VIDEO_URLS.horizontalFeed,
+        thumbnail:
+          'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1400&q=80&auto=format&fit=crop',
         postedAt: 'ha 45 min',
       },
       {

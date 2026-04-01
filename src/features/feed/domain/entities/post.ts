@@ -2,9 +2,12 @@ export type PostMediaType = 'image' | 'video-vertical' | 'video-horizontal';
 
 export type Post = {
   id: string;
+  authorId: string;
   type: PostMediaType;
   user: string;
   avatar: string;
+  isSuggested: boolean;
+  isFollowingAuthor: boolean;
   image?: string;
   video?: string;
   thumbnail?: string;

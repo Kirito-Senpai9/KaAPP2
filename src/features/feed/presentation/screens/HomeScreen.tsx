@@ -1,13 +1,25 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Dimensions, ImageBackground, Easing, Modal, Pressable, BackHandler, ScrollView, FlatList
+  Animated, Dimensions, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
+  type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  interpolate,
+  interpolateColor,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
@@ -20,9 +32,22 @@ import {
   useFeedUiStore,
   type MenuAnchor,
 } from '@/features/feed/presentation/store/useFeedUiStore';
+import { createCachedVideoSource } from '@/shared/constants/demoMedia';
 import { formatCount } from '@/shared/utils/formatCount';
 
 const { width } = Dimensions.get('window');
+
+const TAP_IN_DURATION = 70;
+const TAP_OUT_DURATION = 130;
+const MENU_ENTER_DURATION = 210;
+const MENU_EXIT_DURATION = 130;
+const SPRING_CONFIG = {
+  damping: 11,
+  stiffness: 280,
+  mass: 0.7,
+};
+const ICON_EASE_OUT = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+const MENU_EASE_OUT = ReanimatedEasing.bezier(0.2, 0.9, 0.18, 1);
 
 function areIdsEqual(left: string[], right: string[]) {
   if (left.length !== right.length) {
@@ -41,6 +66,10 @@ function areIdsEqual(left: string[], right: string[]) {
 /* --- Stories (rola junto no header) --- */
 const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const storyPreviewUri =
+    item.stories[0]?.type === 'video'
+      ? item.stories[0].thumbnail ?? item.avatar
+      : item.stories[0]?.uri ?? item.avatar;
 
   const handlePress = () => {
     Animated.sequence([
@@ -61,7 +90,7 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
         onPress={handlePress}
       >
         <ImageBackground
-          source={{ uri: item.stories[0]?.uri ?? item.avatar }}
+          source={{ uri: storyPreviewUri }}
           style={styles.storyBg}
           imageStyle={styles.storyBgImage}
           resizeMode="cover"
@@ -113,14 +142,100 @@ const FeedStoriesHeader = memo(function FeedStoriesHeader({
   );
 });
 
-/* --- Card do Post (com animações) --- */
+type ContextMenuActionItemProps = {
+  iconName: React.ComponentProps<typeof Ionicons>['name'];
+  iconColor: string;
+  label: string;
+  onPress: () => void;
+  textStyle?: StyleProp<TextStyle>;
+  pressedStyle?: StyleProp<ViewStyle>;
+};
+
+const ContextMenuActionItem = memo(function ContextMenuActionItem({
+  iconName,
+  iconColor,
+  label,
+  onPress,
+  textStyle,
+  pressedStyle,
+}: ContextMenuActionItemProps) {
+  const iconScale = useSharedValue(1);
+  const iconShiftX = useSharedValue(0);
+  const iconOpacity = useSharedValue(1);
+
+  const iconAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: iconOpacity.value,
+    transform: [
+      { translateX: iconShiftX.value },
+      { scale: iconScale.value },
+    ],
+  }));
+
+  const handlePressIn = useCallback(() => {
+    iconScale.value = withTiming(0.94, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+    iconShiftX.value = withTiming(1.5, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+    iconOpacity.value = withTiming(0.92, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+  }, [iconOpacity, iconScale, iconShiftX]);
+
+  const handlePressOut = useCallback(() => {
+    iconScale.value = withSequence(
+      withSpring(1.07, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+    iconShiftX.value = withSequence(
+      withTiming(3, {
+        duration: 80,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(0, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+    iconOpacity.value = withTiming(1, {
+      duration: TAP_OUT_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+  }, [iconOpacity, iconScale, iconShiftX]);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.menuItem, pressed && pressedStyle]}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={onPress}
+    >
+      <Reanimated.View style={[styles.menuActionIconWrap, iconAnimatedStyle]}>
+        <Ionicons name={iconName} size={18} color={iconColor} />
+      </Reanimated.View>
+      <Text style={textStyle ?? styles.menuText}>{label}</Text>
+    </Pressable>
+  );
+});
+
+/* --- Card do Post (com animacoes) --- */
 type PostCardProps = {
   item: Post;
   commentCount: number;
   shareCount: number;
+  isFollowingAuthor: boolean;
+  showFollowCta: boolean;
   isVisible: boolean;
   onOpenComments: (post: Post) => void;
   onOpenShare: (post: Post) => void;
+  onToggleFollowAuthor: (authorId: string, nextIsFollowing: boolean) => void;
   onOpenContextMenu: (post: Post, anchor: MenuAnchor) => void;
 };
 
@@ -128,9 +243,12 @@ const PostCard = memo(function PostCard({
   item,
   commentCount,
   shareCount,
+  isFollowingAuthor,
+  showFollowCta,
   isVisible,
   onOpenComments,
   onOpenShare,
+  onToggleFollowAuthor,
   onOpenContextMenu,
 }: PostCardProps) {
   const [liked, setLiked] = useState(false);
@@ -141,70 +259,203 @@ const PostCard = memo(function PostCard({
   const [isPausedByUser, setIsPausedByUser] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(!item.thumbnail);
-  const videoPlayer = useVideoPlayer(item.video ?? null, (player) => {
+  const [hasVideoError, setHasVideoError] = useState(false);
+  const videoSource = useMemo(
+    () => (item.video ? createCachedVideoSource(item.video) : null),
+    [item.video]
+  );
+  const videoPlayer = useVideoPlayer(videoSource, (player) => {
     player.loop = false;
     player.muted = true;
   });
 
-  const likeScale    = useRef(new Animated.Value(1)).current;
-  const commentScale = useRef(new Animated.Value(1)).current;
-  const commentShake = useRef(new Animated.Value(0)).current;
-  const shareX       = useRef(new Animated.Value(0)).current;
-  const repostScale  = useRef(new Animated.Value(1)).current;
-  const saveRotateY  = useRef(new Animated.Value(0)).current;
+  const likeScale = useSharedValue(1);
+  const commentScale = useSharedValue(1);
+  const commentTilt = useSharedValue(0);
+  const shareProgress = useSharedValue(0);
+  const repostScale = useSharedValue(1);
+  const repostTilt = useSharedValue(0);
+  const saveRotateY = useSharedValue(0);
+  const moreButtonScale = useSharedValue(1);
+  const moreButtonOffsetY = useSharedValue(0);
+  const moreButtonGlow = useSharedValue(0);
+  const followScale = useSharedValue(1);
+  const followProgress = useSharedValue(isFollowingAuthor ? 1 : 0);
   const menuButtonRef = useRef<View | null>(null);
+
+  const likeIconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: likeScale.value }],
+  }));
+
+  const commentIconStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: commentScale.value },
+      { rotate: `${commentTilt.value}deg` },
+    ],
+  }));
+
+  const repostIconStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: repostScale.value },
+      { rotate: `${repostTilt.value}deg` },
+    ],
+  }));
+
+  const shareIconStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(shareProgress.value, [0, 0.6, 1], [0, 7, 0]) },
+      { translateY: interpolate(shareProgress.value, [0, 0.6, 1], [0, -4, 0]) },
+      { rotate: `${interpolate(shareProgress.value, [0, 0.6, 1], [0, -12, 0])}deg` },
+      { scale: interpolate(shareProgress.value, [0, 0.6, 1], [1, 1.04, 1]) },
+    ],
+  }));
+
+  const saveIconStyle = useAnimatedStyle(() => ({
+    transform: [
+      { perspective: 400 },
+      { rotateY: `${saveRotateY.value}deg` },
+      { scale: interpolate(saveRotateY.value, [0, 90, 180], [1, 0.96, 1]) },
+    ],
+  }));
+
+  const moreButtonAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      moreButtonGlow.value,
+      [0, 1],
+      ['rgba(255,255,255,0)', 'rgba(255,255,255,0.08)']
+    ),
+    transform: [
+      { translateY: moreButtonOffsetY.value },
+      { scale: moreButtonScale.value },
+    ],
+  }));
+
+  const followButtonAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      followProgress.value,
+      [0, 1],
+      ['#6C63FF', 'rgba(255,255,255,0.06)']
+    ),
+    borderColor: interpolateColor(
+      followProgress.value,
+      [0, 1],
+      ['rgba(124, 111, 255, 0.94)', 'rgba(255,255,255,0.12)']
+    ),
+    transform: [{ scale: followScale.value }],
+  }));
+
+  const followButtonTextAnimatedStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      followProgress.value,
+      [0, 1],
+      ['#F8F9FF', '#E2E5F7']
+    ),
+  }));
 
   const handleLike = () => {
     setLiked(v => !v);
-    Animated.sequence([
-      Animated.spring(likeScale, { toValue: 1.25, useNativeDriver: true }),
-      Animated.spring(likeScale, { toValue: 1, friction: 4, useNativeDriver: true }),
-    ]).start();
+    likeScale.value = withSequence(
+      withTiming(0.9, {
+        duration: TAP_IN_DURATION,
+        easing: ICON_EASE_OUT,
+      }),
+      withSpring(1.18, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
   };
 
   const handleComment = () => {
-    Animated.parallel([
-      Animated.sequence([
-        Animated.spring(commentScale, { toValue: 1.15, useNativeDriver: true }),
-        Animated.spring(commentScale, { toValue: 1, friction: 4, useNativeDriver: true }),
-      ]),
-      Animated.sequence([
-        Animated.timing(commentShake, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(commentShake, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(commentShake, { toValue: 0, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-      ]),
-    ]).start();
+    commentScale.value = withSequence(
+      withTiming(0.94, {
+        duration: TAP_IN_DURATION,
+        easing: ICON_EASE_OUT,
+      }),
+      withSpring(1.1, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+    commentTilt.value = withSequence(
+      withTiming(-7, {
+        duration: 60,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(6, {
+        duration: 80,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      }),
+      withTiming(0, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
 
     onOpenComments(item);
   };
 
   const handleShare = () => {
-    Animated.sequence([
-      Animated.timing(shareX, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(shareX, { toValue: 0, duration: 220, easing: Easing.in(Easing.cubic),  useNativeDriver: true }),
-    ]).start();
+    shareProgress.value = 0;
+    shareProgress.value = withSequence(
+      withTiming(1, {
+        duration: 190,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(0, {
+        duration: 120,
+        easing: ICON_EASE_OUT,
+      })
+    );
     onOpenShare(item);
   };
 
   const handleRepost = () => {
     setReposted(v => !v);
-    Animated.sequence([
-      Animated.spring(repostScale, { toValue: 1.2, useNativeDriver: true }),
-      Animated.spring(repostScale, { toValue: 1, friction: 4, useNativeDriver: true }),
-    ]).start();
+    repostScale.value = withSequence(
+      withTiming(0.94, {
+        duration: TAP_IN_DURATION,
+        easing: ICON_EASE_OUT,
+      }),
+      withSpring(1.12, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+    repostTilt.value = withSequence(
+      withTiming(-10, {
+        duration: 60,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(9, {
+        duration: 85,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      }),
+      withTiming(0, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
   };
 
   const handleSave = () => {
     setSaved(v => !v);
-    Animated.sequence([
-      Animated.timing(saveRotateY, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(saveRotateY, { toValue: 0, duration: 220, easing: Easing.in(Easing.cubic),  useNativeDriver: true }),
-    ]).start();
+    saveRotateY.value = 0;
+    saveRotateY.value = withSequence(
+      withTiming(96, {
+        duration: 120,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(180, {
+        duration: 130,
+        easing: ICON_EASE_OUT,
+      }),
+      withTiming(0, { duration: 0 })
+    );
   };
-
-  const shareTranslate = shareX.interpolate({ inputRange: [0, 1], outputRange: [0, 10] });
-  const commentOffset  = commentShake.interpolate({ inputRange: [-1, 1], outputRange: [-3, 3] });
-  const saveRotateDeg  = saveRotateY.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
   const postTags = item.hashtags?.join(' ') ?? '';
 
   const isVideoPost = item.type === 'video-horizontal' || item.type === 'video-vertical';
@@ -212,11 +463,41 @@ const PostCard = memo(function PostCard({
 
   useEffect(() => {
     setIsVideoReady(!item.thumbnail);
-  }, [item.thumbnail]);
+    setHasVideoError(false);
+    setIsPlaying(false);
+    setIsPausedByUser(false);
+    setHasEnded(false);
+  }, [item.id, item.thumbnail, item.video]);
+
+  useEffect(() => {
+    followProgress.value = withTiming(isFollowingAuthor ? 1 : 0, {
+      duration: 180,
+      easing: ICON_EASE_OUT,
+    });
+  }, [followProgress, isFollowingAuthor]);
 
   useEffect(() => {
     if (!isVideoPost) return;
 
+    const statusSubscription = videoPlayer.addListener(
+      'statusChange',
+      ({ status, error }) => {
+        if (error) {
+          setHasVideoError(true);
+          setIsVideoReady(false);
+          setIsPlaying(false);
+          return;
+        }
+
+        if (status === 'readyToPlay') {
+          setHasVideoError(false);
+          setIsVideoReady(true);
+        }
+      }
+    );
+    const sourceLoadSubscription = videoPlayer.addListener('sourceLoad', () => {
+      setHasVideoError(false);
+    });
     const playingSubscription = videoPlayer.addListener('playingChange', ({ isPlaying: nextIsPlaying }) => {
       setIsPlaying(nextIsPlaying);
     });
@@ -227,6 +508,8 @@ const PostCard = memo(function PostCard({
     });
 
     return () => {
+      statusSubscription.remove();
+      sourceLoadSubscription.remove();
       playingSubscription.remove();
       playToEndSubscription.remove();
     };
@@ -241,16 +524,21 @@ const PostCard = memo(function PostCard({
   useEffect(() => {
     if (!isVideoPost) return;
 
+    if (hasVideoError) {
+      videoPlayer.pause();
+      return;
+    }
+
     if (shouldAutoPlay) {
       videoPlayer.play();
       return;
     }
 
     videoPlayer.pause();
-  }, [isVideoPost, shouldAutoPlay, videoPlayer]);
+  }, [hasVideoError, isVideoPost, shouldAutoPlay, videoPlayer]);
 
   const handleVideoPress = async () => {
-    if (!isVideoPost) return;
+    if (!isVideoPost || hasVideoError) return;
 
     if (hasEnded) {
       setHasEnded(false);
@@ -304,9 +592,12 @@ const PostCard = memo(function PostCard({
             nativeControls={false}
             surfaceType="textureView"
             useExoShutter={false}
-            onFirstFrameRender={() => setIsVideoReady(true)}
+            onFirstFrameRender={() => {
+              setIsVideoReady(true);
+              setHasVideoError(false);
+            }}
           />
-          {!!item.thumbnail && !isVideoReady && (
+          {!!item.thumbnail && (!isVideoReady || hasVideoError) && (
             <Image
               source={{ uri: item.thumbnail }}
               style={styles.video}
@@ -320,7 +611,7 @@ const PostCard = memo(function PostCard({
             style={styles.muteButton}
             onPress={() => setIsMuted((prev) => !prev)}
             accessibilityRole="button"
-            accessibilityLabel={isMuted ? 'Ativar som' : 'Silenciar vídeo'}
+            accessibilityLabel={isMuted ? 'Ativar som' : 'Silenciar video'}
           >
             <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={18} color="#F8F9FF" />
           </TouchableOpacity>
@@ -330,7 +621,7 @@ const PostCard = memo(function PostCard({
               style={styles.centerButton}
               onPress={handleVideoPress}
               accessibilityRole="button"
-              accessibilityLabel="Continuar vídeo"
+              accessibilityLabel="Continuar video"
             >
               <Ionicons name="play" size={30} color="#F8F9FF" />
             </TouchableOpacity>
@@ -341,7 +632,7 @@ const PostCard = memo(function PostCard({
               style={styles.centerButton}
               onPress={handleReplay}
               accessibilityRole="button"
-              accessibilityLabel="Reproduzir vídeo novamente"
+              accessibilityLabel="Reproduzir video novamente"
             >
               <Ionicons name="refresh" size={28} color="#F8F9FF" />
             </TouchableOpacity>
@@ -352,6 +643,60 @@ const PostCard = memo(function PostCard({
 
     return null;
   };
+
+  const handleMorePressIn = useCallback(() => {
+    moreButtonScale.value = withTiming(0.92, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+    moreButtonOffsetY.value = withTiming(-1, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+    moreButtonGlow.value = withTiming(1, {
+      duration: 110,
+      easing: ICON_EASE_OUT,
+    });
+  }, [moreButtonGlow, moreButtonOffsetY, moreButtonScale]);
+
+  const handleMorePressOut = useCallback(() => {
+    moreButtonScale.value = withSequence(
+      withSpring(1.04, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+    moreButtonOffsetY.value = withTiming(0, {
+      duration: TAP_OUT_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+    moreButtonGlow.value = withTiming(0, {
+      duration: 150,
+      easing: ICON_EASE_OUT,
+    });
+  }, [moreButtonGlow, moreButtonOffsetY, moreButtonScale]);
+
+  const handleFollowPressIn = useCallback(() => {
+    followScale.value = withTiming(0.96, {
+      duration: TAP_IN_DURATION,
+      easing: ICON_EASE_OUT,
+    });
+  }, [followScale]);
+
+  const handleFollowPressOut = useCallback(() => {
+    followScale.value = withSequence(
+      withSpring(isFollowingAuthor ? 1.01 : 1.05, SPRING_CONFIG),
+      withTiming(1, {
+        duration: TAP_OUT_DURATION,
+        easing: ICON_EASE_OUT,
+      })
+    );
+  }, [followScale, isFollowingAuthor]);
+
+  const handleFollowPress = useCallback(() => {
+    onToggleFollowAuthor(item.authorId, !isFollowingAuthor);
+  }, [isFollowingAuthor, item.authorId, onToggleFollowAuthor]);
 
   const handleOpenContextMenu = () => {
     menuButtonRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
@@ -369,86 +714,115 @@ const PostCard = memo(function PostCard({
           cachePolicy="memory-disk"
           recyclingKey={item.avatar}
         />
-        <View style={{ flex: 1 }}>
+        <View style={styles.cardMeta}>
           <Text style={styles.cardUser}>{item.user}</Text>
-          <Text style={styles.cardSub}>{item.timeLabel} • público</Text>
+          <Text style={styles.cardSub}>{item.timeLabel} {'\u2022'} publico</Text>
         </View>
-        <TouchableOpacity
-          ref={menuButtonRef}
-          style={styles.moreButton}
-          onPress={handleOpenContextMenu}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={`Abrir menu da postagem de ${item.user}`}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="ellipsis-horizontal" size={18} color="#B9BDD4" />
-        </TouchableOpacity>
+        {showFollowCta && (
+          <Reanimated.View style={[styles.followButtonWrap, followButtonAnimatedStyle]}>
+            <TouchableOpacity
+              style={styles.followButtonTouch}
+              onPress={handleFollowPress}
+              onPressIn={handleFollowPressIn}
+              onPressOut={handleFollowPressOut}
+              activeOpacity={1}
+              accessibilityRole="button"
+              accessibilityLabel={isFollowingAuthor ? `Deixar de seguir ${item.user}` : `Seguir ${item.user}`}
+            >
+              <Reanimated.Text style={[styles.followButtonText, followButtonTextAnimatedStyle]}>
+                {isFollowingAuthor ? 'Seguindo' : 'Seguir'}
+              </Reanimated.Text>
+            </TouchableOpacity>
+          </Reanimated.View>
+        )}
+        <Reanimated.View style={[styles.moreButton, moreButtonAnimatedStyle]}>
+          <TouchableOpacity
+            ref={menuButtonRef}
+            style={styles.moreButtonTouch}
+            onPress={handleOpenContextMenu}
+            onPressIn={handleMorePressIn}
+            onPressOut={handleMorePressOut}
+            activeOpacity={1}
+            accessibilityRole="button"
+            accessibilityLabel={`Abrir menu da postagem de ${item.user}`}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="ellipsis-vertical" size={18} color="#B9BDD4" />
+          </TouchableOpacity>
+        </Reanimated.View>
       </View>
 
       {renderMedia()}
 
-      {/* Ações compactas: curtir, comentar, repostar e compartilhar + salvar */}
+      {/* Acoes compactas: curtir, comentar, repostar e compartilhar + salvar */}
       <View style={styles.actions}>
         <View style={styles.actionsLeft}>
-          <Animated.View style={[styles.actionItem, { transform: [{ scale: likeScale }] }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={handleLike}
-              activeOpacity={0.8}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel={liked ? 'Descurtir' : 'Curtir'}
-            >
-              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? '#FF5A8F' : '#E5E7F4'} />
-            </TouchableOpacity>
+          <View style={styles.actionItem}>
+            <Reanimated.View style={[styles.actionIconWrap, likeIconStyle]}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleLike}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={liked ? 'Descurtir' : 'Curtir'}
+              >
+                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? '#FF5A8F' : '#E5E7F4'} />
+              </TouchableOpacity>
+            </Reanimated.View>
             <Text style={styles.actionCount}>{formatCount(item.likes + (liked ? 1 : 0))}</Text>
-          </Animated.View>
+          </View>
 
-          <Animated.View style={[styles.actionItem, { transform: [{ scale: commentScale }, { translateX: commentOffset }] }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={handleComment}
-              activeOpacity={0.8}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Comentar"
-            >
-              <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
-            </TouchableOpacity>
+          <View style={styles.actionItem}>
+            <Reanimated.View style={[styles.actionIconWrap, commentIconStyle]}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleComment}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Comentar"
+              >
+                <Ionicons name="chatbubble-outline" size={22} color="#E5E7F4" />
+              </TouchableOpacity>
+            </Reanimated.View>
             <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
-          </Animated.View>
+          </View>
 
-          <Animated.View style={[styles.actionItem, { transform: [{ scale: repostScale }] }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={handleRepost}
-              activeOpacity={0.8}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel={reposted ? 'Desfazer repostagem' : 'Repostar'}
-            >
-              <Ionicons name="repeat" size={22} color={reposted ? '#7AF1A7' : '#E5E7F4'} />
-            </TouchableOpacity>
+          <View style={styles.actionItem}>
+            <Reanimated.View style={[styles.actionIconWrap, repostIconStyle]}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleRepost}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={reposted ? 'Desfazer repostagem' : 'Repostar'}
+              >
+                <Ionicons name="repeat" size={22} color={reposted ? '#7AF1A7' : '#E5E7F4'} />
+              </TouchableOpacity>
+            </Reanimated.View>
             <Text style={styles.actionCount}>{formatCount(item.reposts + (reposted ? 1 : 0))}</Text>
-          </Animated.View>
+          </View>
 
-          <Animated.View style={[styles.actionItem, { transform: [{ translateX: shareTranslate }] }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={handleShare}
-              activeOpacity={0.8}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Compartilhar"
-            >
-              <Ionicons name="paper-plane-outline" size={22} color="#E5E7F4" />
-            </TouchableOpacity>
+          <View style={styles.actionItem}>
+            <Reanimated.View style={[styles.actionIconWrap, shareIconStyle]}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleShare}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Compartilhar"
+              >
+                <Ionicons name="paper-plane-outline" size={22} color="#E5E7F4" />
+              </TouchableOpacity>
+            </Reanimated.View>
             <Text style={styles.actionCount}>{formatCount(shareCount)}</Text>
-          </Animated.View>
+          </View>
         </View>
 
-        <Animated.View style={{ transform: [{ rotateY: saveRotateDeg }] }}>
+        <Reanimated.View style={[styles.actionIconWrap, saveIconStyle]}>
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={handleSave}
@@ -459,7 +833,7 @@ const PostCard = memo(function PostCard({
           >
             <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={22} color={saved ? '#6C63FF' : '#E5E7F4'} />
           </TouchableOpacity>
-        </Animated.View>
+        </Reanimated.View>
       </View>
 
       <Text style={styles.caption}><Text style={styles.cardUser}>{item.user}</Text> {item.text}</Text>
@@ -480,6 +854,7 @@ export default function Home() {
   const sharePost = useFeedUiStore((state) => state.sharePost);
   const commentCountOverrides = useFeedUiStore((state) => state.commentCountOverrides);
   const shareCountOverrides = useFeedUiStore((state) => state.shareCountOverrides);
+  const followOverridesByAuthor = useFeedUiStore((state) => state.followOverridesByAuthor);
   const storeOpenComments = useFeedUiStore((state) => state.openComments);
   const storeCloseComments = useFeedUiStore((state) => state.closeComments);
   const storeOpenShare = useFeedUiStore((state) => state.openShare);
@@ -488,20 +863,34 @@ export default function Home() {
   const storeCloseContextMenu = useFeedUiStore((state) => state.closeContextMenu);
   const syncCommentCount = useFeedUiStore((state) => state.syncCommentCount);
   const syncShareCount = useFeedUiStore((state) => state.syncShareCount);
-  const menuOpacity = useRef(new Animated.Value(0)).current;
-  const menuScale = useRef(new Animated.Value(0.95)).current;
+  const setAuthorFollowState = useFeedUiStore((state) => state.setAuthorFollowState);
+  const menuProgress = useSharedValue(0);
 
   const isMenuVisible = !!menuData;
 
-  const closeContextMenu = useCallback((onEnd?: () => void) => {
-    Animated.parallel([
-      Animated.timing(menuOpacity, { toValue: 0, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.timing(menuScale, { toValue: 0.95, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start(() => {
-      storeCloseContextMenu();
-      onEnd?.();
+  const menuAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: menuProgress.value,
+    transform: [
+      { translateY: interpolate(menuProgress.value, [0, 1], [-10, 0]) },
+      { scaleX: interpolate(menuProgress.value, [0, 1], [0.965, 1]) },
+      { scaleY: interpolate(menuProgress.value, [0, 1], [0.92, 1]) },
+    ],
+  }));
+
+  const finishCloseContextMenu = useCallback(() => {
+    storeCloseContextMenu();
+  }, [storeCloseContextMenu]);
+
+  const closeContextMenu = useCallback(() => {
+    menuProgress.value = withTiming(0, {
+      duration: MENU_EXIT_DURATION,
+      easing: MENU_EASE_OUT,
+    }, (finished) => {
+      if (finished) {
+        runOnJS(finishCloseContextMenu)();
+      }
     });
-  }, [menuOpacity, menuScale, storeCloseContextMenu]);
+  }, [finishCloseContextMenu, menuProgress]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
     const ids = viewableItems.map((entry) => entry.item.id);
@@ -530,19 +919,18 @@ export default function Home() {
   }, [storeCloseShare]);
 
   const openContextMenu = useCallback((post: Post, anchor: MenuAnchor) => {
-    menuOpacity.setValue(0);
-    menuScale.setValue(0.95);
+    menuProgress.value = 0;
     storeOpenContextMenu(post, anchor);
-  }, [menuOpacity, menuScale, storeOpenContextMenu]);
+  }, [menuProgress, storeOpenContextMenu]);
 
   useEffect(() => {
     if (!isMenuVisible) return;
 
-    Animated.parallel([
-      Animated.timing(menuOpacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(menuScale, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-    ]).start();
-  }, [isMenuVisible, menuOpacity, menuScale]);
+    menuProgress.value = withTiming(1, {
+      duration: MENU_ENTER_DURATION,
+      easing: MENU_EASE_OUT,
+    });
+  }, [isMenuVisible, menuProgress]);
 
   useEffect(() => {
     if (!isMenuVisible) return;
@@ -601,12 +989,29 @@ export default function Home() {
     return { top, left };
   }, [insets.bottom, insets.top, menuData]);
 
-  const handleMenuAction = useCallback((action: 'profile' | 'unfollow' | 'interested' | 'not_interested' | 'report') => {
+  const isMenuAuthorFollowing = menuData
+    ? followOverridesByAuthor[menuData.post.authorId] ?? menuData.post.isFollowingAuthor
+    : false;
+
+  const handleToggleFollowAuthor = useCallback((authorId: string, nextIsFollowing: boolean) => {
+    setAuthorFollowState(authorId, nextIsFollowing);
+  }, [setAuthorFollowState]);
+
+  const handleMenuAction = useCallback((action: 'profile' | 'follow' | 'unfollow' | 'interested' | 'not_interested' | 'report') => {
     if (menuData) {
       console.log(`[ContextMenu] ${action} em ${menuData.post.user}`);
+
+      if (action === 'follow') {
+        setAuthorFollowState(menuData.post.authorId, true);
+      }
+
+      if (action === 'unfollow') {
+        setAuthorFollowState(menuData.post.authorId, false);
+      }
     }
+
     closeContextMenu();
-  }, [closeContextMenu, menuData]);
+  }, [closeContextMenu, menuData, setAuthorFollowState]);
 
 
   const openStoryViewer = useCallback((userIndex: number) => {
@@ -623,21 +1028,27 @@ export default function Home() {
     ({ item }: { item: Post }) => {
       const commentCount = commentCountOverrides[item.id] ?? item.comments;
       const shareCount = shareCountOverrides[item.id] ?? item.shares;
+      const isFollowingAuthor = followOverridesByAuthor[item.authorId] ?? item.isFollowingAuthor;
 
       return (
         <PostCard
           item={item}
           commentCount={commentCount}
           shareCount={shareCount}
+          isFollowingAuthor={isFollowingAuthor}
+          showFollowCta={item.isSuggested}
           isVisible={visiblePostIds.includes(item.id)}
           onOpenComments={openComments}
           onOpenShare={openShare}
+          onToggleFollowAuthor={handleToggleFollowAuthor}
           onOpenContextMenu={openContextMenu}
         />
       );
     },
     [
       commentCountOverrides,
+      followOverridesByAuthor,
+      handleToggleFollowAuthor,
       openComments,
       openContextMenu,
       openShare,
@@ -649,10 +1060,11 @@ export default function Home() {
   const feedExtraData = useMemo(
     () => ({
       commentCountOverrides,
+      followOverridesByAuthor,
       shareCountOverrides,
       visiblePostIds,
     }),
-    [commentCountOverrides, shareCountOverrides, visiblePostIds]
+    [commentCountOverrides, followOverridesByAuthor, shareCountOverrides, visiblePostIds]
   );
 
   const commentsSheetPost = useMemo<CommentPostPreview | null>(() => {
@@ -736,7 +1148,7 @@ export default function Home() {
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Text style={styles.logo}>Kachan!</Text>
         <View style={{ flex: 1 }} />
-        <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificações" accessibilityRole="button">
+        <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
           <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
         </TouchableOpacity>
       </View>
@@ -777,61 +1189,61 @@ export default function Home() {
         <View style={styles.menuOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => closeContextMenu()} />
 
-          <Animated.View
+          <Reanimated.View
             style={[
               styles.contextMenu,
+              menuAnimatedStyle,
               {
                 top: menuPosition.top,
                 left: menuPosition.left,
-                opacity: menuOpacity,
-                transform: [{ scale: menuScale }],
               },
             ]}
           >
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+            <ContextMenuActionItem
+              iconName="person-outline"
+              iconColor="#E4E7FB"
+              label="Perfil"
               onPress={() => handleMenuAction('profile')}
-            >
-              <Ionicons name="person-outline" size={18} color="#E4E7FB" />
-              <Text style={styles.menuText}>Perfil</Text>
-            </Pressable>
+              pressedStyle={styles.menuItemPressed}
+            />
 
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
-              onPress={() => handleMenuAction('unfollow')}
-            >
-              <Ionicons name="person-remove-outline" size={18} color="#E4E7FB" />
-              <Text style={styles.menuText}>Deixar de seguir</Text>
-            </Pressable>
+            <ContextMenuActionItem
+              iconName={isMenuAuthorFollowing ? 'person-remove-outline' : 'person-add-outline'}
+              iconColor="#E4E7FB"
+              label={isMenuAuthorFollowing ? 'Deixar de seguir' : 'Seguir'}
+              onPress={() => handleMenuAction(isMenuAuthorFollowing ? 'unfollow' : 'follow')}
+              pressedStyle={styles.menuItemPressed}
+            />
 
             <View style={styles.menuDivider} />
 
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+            <ContextMenuActionItem
+              iconName="star-outline"
+              iconColor="#E4E7FB"
+              label="Tenho interesse"
               onPress={() => handleMenuAction('interested')}
-            >
-              <Ionicons name="star-outline" size={18} color="#E4E7FB" />
-              <Text style={styles.menuText}>Tenho interesse</Text>
-            </Pressable>
+              pressedStyle={styles.menuItemPressed}
+            />
 
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+            <ContextMenuActionItem
+              iconName="ban-outline"
+              iconColor="#E4E7FB"
+              label="Não tenho interesse"
               onPress={() => handleMenuAction('not_interested')}
-            >
-              <Ionicons name="ban-outline" size={18} color="#E4E7FB" />
-              <Text style={styles.menuText}>Não tenho interesse</Text>
-            </Pressable>
+              pressedStyle={styles.menuItemPressed}
+            />
 
             <View style={styles.menuDivider} />
 
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, styles.reportMenuItem, pressed && styles.reportMenuItemPressed]}
+            <ContextMenuActionItem
+              iconName="flag-outline"
+              iconColor="#FF6C7A"
+              label="Denunciar"
               onPress={() => handleMenuAction('report')}
-            >
-              <Ionicons name="flag-outline" size={18} color="#FF6C7A" />
-              <Text style={styles.reportMenuText}>Denunciar</Text>
-            </Pressable>
-          </Animated.View>
+              textStyle={styles.reportMenuText}
+              pressedStyle={styles.reportMenuItemPressed}
+            />
+          </Reanimated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -872,7 +1284,34 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 10, paddingTop: 6 },
+  cardMeta: { flex: 1, minWidth: 0 },
   moreButton: {
+    minWidth: 28,
+    minHeight: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followButtonWrap: {
+    minWidth: 92,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginRight: 8,
+    overflow: 'hidden',
+  },
+  followButtonTouch: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  followButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+  moreButtonTouch: {
     minWidth: 28,
     minHeight: 28,
     borderRadius: 14,
@@ -883,7 +1322,7 @@ const styles = StyleSheet.create({
   cardUser: { color: '#fff', fontWeight: '700' },
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
-  // mídia com aspectRatio (evita reflow)
+  // midia com aspectRatio (evita reflow)
   mediaWrap: { width, backgroundColor: '#15182f' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
 
@@ -894,7 +1333,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
-  verticalVideoWrap: { aspectRatio: 9 / 16 },
+  verticalVideoWrap: { aspectRatio: 4 / 5 },
   horizontalVideoWrap: { aspectRatio: 16 / 9 },
   video: {
     width: '100%',
@@ -930,6 +1369,7 @@ const styles = StyleSheet.create({
   },
   actionsLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionItem: { flexDirection: 'row', alignItems: 'center' },
+  actionIconWrap: { alignItems: 'center', justifyContent: 'center' },
   actionBtn: { padding: 8, width: 38, alignItems: 'center' },
   actionCount: {
     color: '#BDC1DA',
@@ -968,6 +1408,11 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
   },
+  menuActionIconWrap: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   menuItemPressed: {
     backgroundColor: 'rgba(137, 153, 236, 0.14)',
   },
@@ -982,9 +1427,6 @@ const styles = StyleSheet.create({
     marginVertical: 6,
     marginHorizontal: 10,
   },
-  reportMenuItem: {
-    marginTop: 2,
-  },
   reportMenuItemPressed: {
     backgroundColor: 'rgba(255, 108, 122, 0.14)',
   },
@@ -994,3 +1436,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+
+
