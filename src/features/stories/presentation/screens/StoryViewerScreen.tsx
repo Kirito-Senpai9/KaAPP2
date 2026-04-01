@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   Keyboard,
-  PanResponder,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -16,13 +15,24 @@ import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 
 type Props = RootStackScreenProps<'StoryViewer'>;
 
 const IMAGE_DURATION_MS = 5000;
-const REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
+const REACTIONS = ['â¤ï¸', 'ðŸ˜‚', 'ðŸ”¥', 'ðŸ˜®', 'ðŸ‘'];
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function StoryViewer({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -30,7 +40,6 @@ export default function StoryViewer({ route, navigation }: Props) {
 
   const [currentUserIndex, setCurrentUserIndex] = useState(initialUserIndex);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(initialStoryIndex);
-  const [isPaused, setIsPaused] = useState(false);
   const [input, setInput] = useState('');
   const [isMuted, setIsMuted] = useState(false);
   const [videoDurationMs, setVideoDurationMs] = useState(0);
@@ -40,6 +49,8 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [emojiInsertFx, setEmojiInsertFx] = useState<string | null>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [isPressPaused, setIsPressPaused] = useState(false);
+  const [likedStories, setLikedStories] = useState<Record<string, boolean>>({});
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -51,6 +62,9 @@ export default function StoryViewer({ route, navigation }: Props) {
   const storyStartAtRef = useRef<number>(0);
   const storyRemainingRef = useRef<number>(IMAGE_DURATION_MS);
   const videoSourceKeyRef = useRef<string | null>(null);
+  const likeBurstScale = useSharedValue(0.6);
+  const likeBurstOpacity = useSharedValue(0);
+  const heartButtonScale = useSharedValue(1);
   const videoPlayer = useVideoPlayer(null, (player) => {
     player.loop = false;
     player.muted = false;
@@ -60,12 +74,82 @@ export default function StoryViewer({ route, navigation }: Props) {
   const currentUser = users[currentUserIndex];
   const currentStories = currentUser?.stories ?? [];
   const currentStory = currentStories[currentStoryIndex];
+  const isPaused = isPressPaused || isInputFocused;
+  const isCurrentStoryLiked = currentStory
+    ? !!likedStories[currentStory.id]
+    : false;
 
   const clearStoryTimer = useCallback(() => {
     if (storyTimerRef.current) {
       clearTimeout(storyTimerRef.current);
       storyTimerRef.current = null;
     }
+  }, []);
+
+  const likeBurstStyle = useAnimatedStyle(() => ({
+    opacity: likeBurstOpacity.value,
+    transform: [{ scale: likeBurstScale.value }],
+  }));
+
+  const heartButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartButtonScale.value }],
+  }));
+
+  const triggerHeartBurst = useCallback(() => {
+    likeBurstScale.value = 0.64;
+    likeBurstOpacity.value = 0;
+    likeBurstOpacity.value = withSequence(
+      withTiming(1, { duration: 90 }),
+      withDelay(260, withTiming(0, { duration: 180 }))
+    );
+    likeBurstScale.value = withSequence(
+      withSpring(1.12, { damping: 12, stiffness: 220 }),
+      withTiming(1, { duration: 140 })
+    );
+  }, [likeBurstOpacity, likeBurstScale]);
+
+  const animateHeartButton = useCallback(() => {
+    heartButtonScale.value = withSequence(
+      withTiming(0.84, { duration: 70 }),
+      withSpring(1, { damping: 10, stiffness: 240 })
+    );
+  }, [heartButtonScale]);
+
+  const toggleStoryLike = useCallback(
+    (forceLike = false) => {
+      if (!currentStory) return;
+
+      let shouldBurst = false;
+
+      setLikedStories((currentLikedStories) => {
+        const currentLiked = !!currentLikedStories[currentStory.id];
+        const nextLiked = forceLike ? true : !currentLiked;
+
+        shouldBurst = forceLike || nextLiked;
+
+        if (currentLiked === nextLiked) {
+          return currentLikedStories;
+        }
+
+        return {
+          ...currentLikedStories,
+          [currentStory.id]: nextLiked,
+        };
+      });
+
+      animateHeartButton();
+
+      if (shouldBurst) {
+        triggerHeartBurst();
+      }
+    },
+    [animateHeartButton, currentStory, triggerHeartBurst]
+  );
+
+  const setStoryPressPaused = useCallback((nextPaused: boolean) => {
+    setIsPressPaused((currentValue) =>
+      currentValue === nextPaused ? currentValue : nextPaused
+    );
   }, []);
 
   const goNext = useCallback(() => {
@@ -82,7 +166,13 @@ export default function StoryViewer({ route, navigation }: Props) {
     }
 
     navigation.goBack();
-  }, [currentStories.length, currentStoryIndex, currentUserIndex, navigation, users.length]);
+  }, [
+    currentStories.length,
+    currentStoryIndex,
+    currentUserIndex,
+    navigation,
+    users.length,
+  ]);
 
   const goPrevious = useCallback(() => {
     if (currentStoryIndex > 0) {
@@ -116,41 +206,47 @@ export default function StoryViewer({ route, navigation }: Props) {
     }
   }, [currentUserIndex]);
 
-  const runUserTransition = useCallback((direction: 'next' | 'previous') => {
-    userSlideX.stopAnimation();
-    userOpacity.stopAnimation();
-    userSlideX.setValue(direction === 'next' ? 28 : -28);
-    userOpacity.setValue(0.7);
+  const runUserTransition = useCallback(
+    (direction: 'next' | 'previous') => {
+      userSlideX.stopAnimation();
+      userOpacity.stopAnimation();
+      userSlideX.setValue(direction === 'next' ? 28 : -28);
+      userOpacity.setValue(0.7);
 
-    Animated.parallel([
-      Animated.timing(userSlideX, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-      Animated.timing(userOpacity, {
+      Animated.parallel([
+        Animated.timing(userSlideX, {
+          toValue: 0,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+        Animated.timing(userOpacity, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    [userOpacity, userSlideX]
+  );
+
+  const startImageProgress = useCallback(
+    (durationMs: number) => {
+      clearStoryTimer();
+
+      storyRemainingRef.current = durationMs;
+      storyStartAtRef.current = Date.now();
+      progress.stopAnimation();
+
+      Animated.timing(progress, {
         toValue: 1,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [userOpacity, userSlideX]);
+        duration: durationMs,
+        useNativeDriver: false,
+      }).start();
 
-  const startImageProgress = useCallback((durationMs: number) => {
-    clearStoryTimer();
-
-    storyRemainingRef.current = durationMs;
-    storyStartAtRef.current = Date.now();
-    progress.stopAnimation();
-
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: durationMs,
-      useNativeDriver: false,
-    }).start();
-
-    storyTimerRef.current = setTimeout(goNext, durationMs);
-  }, [clearStoryTimer, goNext, progress]);
+      storyTimerRef.current = setTimeout(goNext, durationMs);
+    },
+    [clearStoryTimer, goNext, progress]
+  );
 
   const pauseImageProgress = useCallback(() => {
     clearStoryTimer();
@@ -163,6 +259,7 @@ export default function StoryViewer({ route, navigation }: Props) {
   }, [clearStoryTimer, progress]);
 
   const resumeImageProgress = useCallback(() => {
+    clearStoryTimer();
     const remaining = Math.max(storyRemainingRef.current, 0);
     if (remaining <= 0) {
       goNext();
@@ -177,7 +274,7 @@ export default function StoryViewer({ route, navigation }: Props) {
     }).start();
 
     storyTimerRef.current = setTimeout(goNext, remaining);
-  }, [goNext, progress]);
+  }, [clearStoryTimer, goNext, progress]);
 
   useEffect(() => {
     if (!currentStory) {
@@ -192,14 +289,24 @@ export default function StoryViewer({ route, navigation }: Props) {
     progress.setValue(0);
 
     Animated.sequence([
-      Animated.timing(contentFade, { toValue: 0, duration: 120, useNativeDriver: true }),
-      Animated.timing(contentFade, { toValue: 1, duration: 280, useNativeDriver: true }),
+      Animated.timing(contentFade, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentFade, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }),
     ]).start();
 
     if (currentStory.type === 'image') {
       videoPlayer.pause();
       videoSourceKeyRef.current = null;
       void videoPlayer.replaceAsync(null);
+      storyRemainingRef.current = currentStory.durationMs ?? IMAGE_DURATION_MS;
+      storyStartAtRef.current = Date.now();
 
       if (!isPaused) {
         startImageProgress(currentStory.durationMs ?? IMAGE_DURATION_MS);
@@ -270,17 +377,42 @@ export default function StoryViewer({ route, navigation }: Props) {
   useEffect(() => () => clearStoryTimer(), [clearStoryTimer]);
 
   useEffect(() => {
-    const sourceLoadSubscription = videoPlayer.addListener('sourceLoad', ({ duration }) => {
-      setVideoDurationMs(Math.max(duration, 0) * 1000);
-    });
-    const timeUpdateSubscription = videoPlayer.addListener('timeUpdate', ({ currentTime }) => {
-      const durationMs = Math.max(videoPlayer.duration, 0) * 1000;
-      const positionMs = Math.max(currentTime, 0) * 1000;
+    if (!currentStory || currentStory.type !== 'image') {
+      return;
+    }
 
-      setVideoDurationMs(durationMs);
-      setVideoPositionMs(positionMs);
-      progress.setValue(durationMs > 0 ? positionMs / durationMs : 0);
-    });
+    if (isPaused) {
+      pauseImageProgress();
+      return;
+    }
+
+    resumeImageProgress();
+  }, [
+    currentStory?.id,
+    currentStory?.type,
+    isPaused,
+    pauseImageProgress,
+    resumeImageProgress,
+  ]);
+
+  useEffect(() => {
+    const sourceLoadSubscription = videoPlayer.addListener(
+      'sourceLoad',
+      ({ duration }) => {
+        setVideoDurationMs(Math.max(duration, 0) * 1000);
+      }
+    );
+    const timeUpdateSubscription = videoPlayer.addListener(
+      'timeUpdate',
+      ({ currentTime }) => {
+        const durationMs = Math.max(videoPlayer.duration, 0) * 1000;
+        const positionMs = Math.max(currentTime, 0) * 1000;
+
+        setVideoDurationMs(durationMs);
+        setVideoPositionMs(positionMs);
+        progress.setValue(durationMs > 0 ? positionMs / durationMs : 0);
+      }
+    );
     const playToEndSubscription = videoPlayer.addListener('playToEnd', () => {
       goNext();
     });
@@ -314,17 +446,23 @@ export default function StoryViewer({ route, navigation }: Props) {
   useEffect(() => {
     if (currentUserIndex === previousUserIndexRef.current) return;
 
-    const direction = currentUserIndex > previousUserIndexRef.current ? 'next' : 'previous';
+    const direction =
+      currentUserIndex > previousUserIndexRef.current ? 'next' : 'previous';
     runUserTransition(direction);
     previousUserIndexRef.current = currentUserIndex;
   }, [currentUserIndex, runUserTransition]);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const onShow = Keyboard.addListener(showEvent, (event) => {
-      const offset = Math.max(event.endCoordinates.height - insets.bottom + 10, 0);
+      const offset = Math.max(
+        event.endCoordinates.height - insets.bottom + 10,
+        0
+      );
       setKeyboardOffset(offset);
     });
 
@@ -338,46 +476,34 @@ export default function StoryViewer({ route, navigation }: Props) {
     };
   }, [insets.bottom]);
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 25,
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx < -130) {
-        goNextUser();
-      } else if (gesture.dx > 130) {
-        goPreviousUser();
-      } else if (gesture.dx < -45) {
-        goNext();
-      } else if (gesture.dx > 45) {
-        goPrevious();
-      }
+  const showReactionFx = useCallback(
+    (emoji: string) => {
+      setInput((value) => `${value}${emoji}`);
+      setEmojiFx(emoji);
+      setEmojiInsertFx(emoji);
+      emojiInsertAnim.stopAnimation();
+      emojiInsertAnim.setValue(0);
+
+      Animated.sequence([
+        Animated.timing(emojiInsertAnim, {
+          toValue: 1,
+          duration: 210,
+          useNativeDriver: true,
+        }),
+        Animated.delay(120),
+        Animated.timing(emojiInsertAnim, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setEmojiInsertFx(null);
+      });
+
+      setTimeout(() => setEmojiFx(null), 520);
     },
-  }), [goNext, goNextUser, goPrevious, goPreviousUser]);
-
-  const showReactionFx = useCallback((emoji: string) => {
-    setInput((value) => `${value}${emoji}`);
-    setEmojiFx(emoji);
-    setEmojiInsertFx(emoji);
-    emojiInsertAnim.stopAnimation();
-    emojiInsertAnim.setValue(0);
-
-    Animated.sequence([
-      Animated.timing(emojiInsertAnim, {
-        toValue: 1,
-        duration: 210,
-        useNativeDriver: true,
-      }),
-      Animated.delay(120),
-      Animated.timing(emojiInsertAnim, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setEmojiInsertFx(null);
-    });
-
-    setTimeout(() => setEmojiFx(null), 520);
-  }, [emojiInsertAnim]);
+    [emojiInsertAnim]
+  );
 
   const handleSend = useCallback(() => {
     const payload = input.trim();
@@ -387,15 +513,66 @@ export default function StoryViewer({ route, navigation }: Props) {
     Keyboard.dismiss();
   }, [input]);
 
-  const handleHoldStart = () => {
-    setIsPaused(true);
-    if (currentStory?.type === 'image') pauseImageProgress();
-  };
+  const storyGestures = useMemo(() => {
+    const singleTapGesture = Gesture.Tap()
+      .maxDuration(250)
+      .onEnd((event, success) => {
+        if (!success) return;
 
-  const handleHoldEnd = () => {
-    setIsPaused(false);
-    if (currentStory?.type === 'image') resumeImageProgress();
-  };
+        if (event.x < SCREEN_WIDTH / 2) {
+          runOnJS(goPrevious)();
+          return;
+        }
+
+        runOnJS(goNext)();
+      });
+
+    const doubleTapGesture = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDuration(220)
+      .maxDelay(240)
+      .onEnd((_, success) => {
+        if (!success) return;
+        runOnJS(toggleStoryLike)(true);
+      });
+
+    const horizontalPanGesture = Gesture.Pan()
+      .activeOffsetX([-40, 40])
+      .failOffsetY([-28, 28])
+      .onEnd((event) => {
+        if (event.translationX <= -55) {
+          runOnJS(goNextUser)();
+          return;
+        }
+
+        if (event.translationX >= 55) {
+          runOnJS(goPreviousUser)();
+        }
+      });
+
+    const longPressGesture = Gesture.LongPress()
+      .minDuration(160)
+      .maxDistance(16)
+      .onStart(() => {
+        runOnJS(setStoryPressPaused)(true);
+      })
+      .onFinalize(() => {
+        runOnJS(setStoryPressPaused)(false);
+      });
+
+    return Gesture.Simultaneous(
+      Gesture.Exclusive(doubleTapGesture, singleTapGesture),
+      horizontalPanGesture,
+      longPressGesture
+    );
+  }, [
+    goNext,
+    goNextUser,
+    goPrevious,
+    goPreviousUser,
+    setStoryPressPaused,
+    toggleStoryLike,
+  ]);
 
   if (!currentStory || !currentUser) {
     return null;
@@ -403,14 +580,19 @@ export default function StoryViewer({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom', 'left', 'right']}>
-      <LinearGradient colors={['#07080f', '#11142a', '#07080f']} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={['#07080f', '#11142a', '#07080f']}
+        style={StyleSheet.absoluteFill}
+      />
 
       <Animated.View
         style={[
           styles.contentLayer,
-          { opacity: Animated.multiply(contentFade, userOpacity), transform: [{ translateX: userSlideX }] },
+          {
+            opacity: Animated.multiply(contentFade, userOpacity),
+            transform: [{ translateX: userSlideX }],
+          },
         ]}
-        {...panResponder.panHandlers}
       >
         {currentStory.type === 'video' ? (
           <>
@@ -443,6 +625,15 @@ export default function StoryViewer({ route, navigation }: Props) {
           />
         )}
 
+        <GestureDetector gesture={storyGestures}>
+          <View
+            style={[
+              styles.gestureSurface,
+              { bottom: (isInputFocused ? 148 : 108) + keyboardOffset },
+            ]}
+          />
+        </GestureDetector>
+
         <View style={styles.overlayTop}>
           <View style={styles.progressRow}>
             {currentStories.map((story, index) => {
@@ -455,14 +646,20 @@ export default function StoryViewer({ route, navigation }: Props) {
 
               return (
                 <View key={story.id} style={styles.segmentTrack}>
-                  {filled && <View style={[styles.segmentFill, { width: '100%' }]} />}
-                  {active && <Animated.View style={[styles.segmentFill, { width: widthInterpolate }]} />}
+                  {filled && (
+                    <View style={[styles.segmentFill, { width: '100%' }]} />
+                  )}
+                  {active && (
+                    <Animated.View
+                      style={[styles.segmentFill, { width: widthInterpolate }]}
+                    />
+                  )}
                 </View>
               );
             })}
           </View>
 
-          <View style={[styles.header, { marginTop: insets.top + 4 }]}>
+          <View style={styles.header}>
             <View style={styles.userInfo}>
               <Image
                 source={{ uri: currentUser.avatar }}
@@ -471,50 +668,39 @@ export default function StoryViewer({ route, navigation }: Props) {
                 cachePolicy="memory-disk"
                 recyclingKey={currentUser.avatar}
               />
-              <Text style={styles.userText}>{currentUser.name} • {currentStory.postedAt}</Text>
+              <View style={styles.userMeta}>
+                <Text style={styles.userName}>{currentUser.name}</Text>
+                <Text style={styles.userTime}>{currentStory.postedAt}</Text>
+              </View>
             </View>
 
             <View style={styles.headerActions}>
               {currentStory.type === 'video' && (
-                <TouchableOpacity onPress={() => setIsMuted((value) => !value)} style={styles.iconBtn}>
-                  <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} color="#fff" size={18} />
+                <TouchableOpacity
+                  onPress={() => setIsMuted((value) => !value)}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons
+                    name={isMuted ? 'volume-mute' : 'volume-high'}
+                    color="#fff"
+                    size={18}
+                  />
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={styles.iconBtn}>
                 <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.iconBtn}
+              >
                 <Ionicons name="close" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        <View pointerEvents="box-none" style={styles.tapZones}>
-          <Pressable style={styles.tapSide} onPress={goPrevious} onPressIn={handleHoldStart} onPressOut={handleHoldEnd} />
-          <Pressable style={styles.tapSide} onPress={goNext} onPressIn={handleHoldStart} onPressOut={handleHoldEnd} />
-        </View>
-
-        <View pointerEvents="box-none" style={styles.storyArrowsWrap}>
-          <TouchableOpacity onPress={goPrevious} style={[styles.storyArrowBtn, styles.storyArrowLeft]}>
-            <Ionicons name="chevron-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={goNext} style={[styles.storyArrowBtn, styles.storyArrowRight]}>
-            <Ionicons name="chevron-forward" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
         <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
-          {!!currentStory.overlays?.length && (
-            <View style={styles.overlayBadgeWrap}>
-              {currentStory.overlays.map((overlay) => (
-                <View key={overlay.id} style={styles.overlayBadge}>
-                  <Text style={styles.overlayBadgeText}>{overlay.content}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
           <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
             {emojiInsertFx && (
               <Animated.View
@@ -522,7 +708,10 @@ export default function StoryViewer({ route, navigation }: Props) {
                 style={[
                   styles.emojiInsertFx,
                   {
-                    opacity: emojiInsertAnim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] }),
+                    opacity: emojiInsertAnim.interpolate({
+                      inputRange: [0, 0.2, 1],
+                      outputRange: [0, 1, 0],
+                    }),
                     transform: [
                       {
                         translateX: emojiInsertAnim.interpolate({
@@ -531,7 +720,10 @@ export default function StoryViewer({ route, navigation }: Props) {
                         }),
                       },
                       {
-                        scale: emojiInsertAnim.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.7, 1.1, 1] }),
+                        scale: emojiInsertAnim.interpolate({
+                          inputRange: [0, 0.35, 1],
+                          outputRange: [0.7, 1.1, 1],
+                        }),
                       },
                     ],
                   },
@@ -549,6 +741,22 @@ export default function StoryViewer({ route, navigation }: Props) {
               placeholderTextColor="#AEB2C8"
               style={styles.input}
             />
+            <Reanimated.View style={heartButtonStyle}>
+              <TouchableOpacity
+                style={styles.heartBtn}
+                onPress={() => toggleStoryLike()}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isCurrentStoryLiked ? 'Descurtir story' : 'Curtir story'
+                }
+              >
+                <Ionicons
+                  name={isCurrentStoryLiked ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={isCurrentStoryLiked ? '#FF7BA5' : '#FFFFFF'}
+                />
+              </TouchableOpacity>
+            </Reanimated.View>
             <TouchableOpacity style={styles.shareBtn} onPress={handleSend}>
               <Ionicons name="paper-plane" size={18} color="#fff" />
             </TouchableOpacity>
@@ -558,7 +766,11 @@ export default function StoryViewer({ route, navigation }: Props) {
             <View style={styles.reactionRow}>
               <View style={styles.suggestionWrap}>
                 {REACTIONS.map((emoji) => (
-                  <TouchableOpacity key={emoji} onPress={() => showReactionFx(emoji)} style={styles.reactionBtn}>
+                  <TouchableOpacity
+                    key={emoji}
+                    onPress={() => showReactionFx(emoji)}
+                    style={styles.reactionBtn}
+                  >
                     <Text style={styles.reactionText}>{emoji}</Text>
                   </TouchableOpacity>
                 ))}
@@ -573,10 +785,18 @@ export default function StoryViewer({ route, navigation }: Props) {
           </Animated.View>
         )}
 
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.likeBurst, likeBurstStyle]}
+        >
+          <Ionicons name="heart" size={104} color="#FF7BA5" />
+        </Reanimated.View>
+
         {currentStory.type === 'video' && (
           <View style={styles.videoMeta}>
             <Text style={styles.videoMetaText}>
-              {Math.floor(videoPositionMs / 1000)}s / {Math.max(1, Math.floor(videoDurationMs / 1000))}s
+              {Math.floor(videoPositionMs / 1000)}s /{' '}
+              {Math.max(1, Math.floor(videoDurationMs / 1000))}s
             </Text>
           </View>
         )}
@@ -593,13 +813,19 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  gestureSurface: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 86,
+  },
   overlayTop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingTop: 8,
   },
   progressRow: {
     flexDirection: 'row',
@@ -618,7 +844,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   header: {
-    marginTop: 14,
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -627,18 +853,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flexShrink: 1,
   },
   avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.7)',
   },
-  userText: {
-    color: '#fff',
-    fontWeight: '700',
+  userMeta: {
+    gap: 2,
+    flexShrink: 1,
+  },
+  userName: {
+    color: '#FFFFFF',
+    fontWeight: '800',
     fontSize: 13,
+  },
+  userTime: {
+    color: 'rgba(244,246,255,0.72)',
+    fontWeight: '600',
+    fontSize: 11,
   },
   headerActions: {
     flexDirection: 'row',
@@ -653,59 +889,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tapZones: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    top: 110,
-    bottom: 160,
-  },
-  tapSide: { flex: 1 },
-  storyArrowsWrap: {
-    ...StyleSheet.absoluteFillObject,
-    top: 150,
-    bottom: 200,
-    justifyContent: 'center',
-  },
-  storyArrowBtn: {
-    position: 'absolute',
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(7, 8, 15, 0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  storyArrowLeft: {
-    left: 12,
-  },
-  storyArrowRight: {
-    right: 12,
-  },
   bottomArea: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 12,
     paddingHorizontal: 12,
-  },
-  overlayBadgeWrap: {
-    marginBottom: 10,
-    gap: 8,
-  },
-  overlayBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 14,
-    backgroundColor: 'rgba(17,20,42,0.58)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  overlayBadgeText: {
-    color: '#fff',
-    fontWeight: '600',
   },
   interactionBar: {
     borderRadius: 30,
@@ -727,6 +916,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  heartBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginLeft: 8,
+  },
+  shareBtn: {
+    marginLeft: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(108,99,255,0.38)',
+  },
   reactionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -747,15 +954,6 @@ const styles = StyleSheet.create({
   reactionText: {
     fontSize: 18,
   },
-  shareBtn: {
-    marginLeft: 8,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(108,99,255,0.38)',
-  },
   emojiFx: {
     position: 'absolute',
     alignSelf: 'center',
@@ -771,11 +969,17 @@ const styles = StyleSheet.create({
   },
   emojiInsertFx: {
     position: 'absolute',
-    right: 52,
+    right: 98,
     alignSelf: 'center',
   },
   emojiInsertText: {
     fontSize: 20,
+  },
+  likeBurst: {
+    position: 'absolute',
+    top: '46%',
+    alignSelf: 'center',
+    marginTop: -52,
   },
   videoMeta: {
     position: 'absolute',
