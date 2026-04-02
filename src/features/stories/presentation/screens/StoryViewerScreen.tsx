@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
   Keyboard,
@@ -10,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -28,6 +30,11 @@ import Reanimated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import { createCachedVideoSource } from '@/shared/constants/demoMedia';
+import BottomSheetStoryPrivacy from '@/features/stories/presentation/BottomSheetStoryPrivacy';
+import BottomSheetStoryViewers from '@/features/stories/presentation/BottomSheetStoryViewers';
+import { useStories } from '@/features/stories/presentation/hooks/useStories';
+import { getStoriesRepository } from '@/features/stories/infrastructure/repositories/mockStoriesRepository';
+import { BottomSheetShare, type SharePostPreview } from '@/features/share';
 
 type Props = RootStackScreenProps<'StoryViewer'>;
 
@@ -37,14 +44,20 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function StoryViewer({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { users, initialStoryIndex, initialUserIndex } = route.params;
+  const queryClient = useQueryClient();
+  const {
+    users: initialUsers,
+    initialStoryIndex,
+    initialUserIndex,
+  } = route.params;
+  const liveUsers = useStories(true);
+  const storiesRepository = useMemo(() => getStoriesRepository(), []);
+  const users = liveUsers.length > 0 ? liveUsers : initialUsers;
 
   const [currentUserIndex, setCurrentUserIndex] = useState(initialUserIndex);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(initialStoryIndex);
   const [input, setInput] = useState('');
   const [isMuted, setIsMuted] = useState(false);
-  const [videoDurationMs, setVideoDurationMs] = useState(0);
-  const [videoPositionMs, setVideoPositionMs] = useState(0);
   const [emojiFx, setEmojiFx] = useState<string | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -53,6 +66,9 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [hasVideoError, setHasVideoError] = useState(false);
   const [isPressPaused, setIsPressPaused] = useState(false);
   const [likedStories, setLikedStories] = useState<Record<string, boolean>>({});
+  const [isPrivacySheetVisible, setIsPrivacySheetVisible] = useState(false);
+  const [isViewersSheetVisible, setIsViewersSheetVisible] = useState(false);
+  const [isStoryShareVisible, setIsStoryShareVisible] = useState(false);
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -76,10 +92,34 @@ export default function StoryViewer({ route, navigation }: Props) {
   const currentUser = users[currentUserIndex];
   const currentStories = currentUser?.stories ?? [];
   const currentStory = currentStories[currentStoryIndex];
-  const isPaused = isPressPaused || isInputFocused;
+  const isOwnStory = !!currentUser?.isOwnStory;
+  const canMessageCurrentStory = !isOwnStory;
+  const isPaused =
+    isPressPaused ||
+    isInputFocused ||
+    isPrivacySheetVisible ||
+    isViewersSheetVisible ||
+    isStoryShareVisible;
   const isCurrentStoryLiked = currentStory
     ? !!likedStories[currentStory.id]
     : false;
+  const currentStoryViewers = currentStory?.viewers ?? [];
+  const previewViewers = currentStoryViewers.slice(0, 3);
+  const storySharePreview = useMemo<SharePostPreview | null>(() => {
+    if (!isOwnStory || !currentStory || !currentUser) {
+      return null;
+    }
+
+    return {
+      id: currentStory.id,
+      authorName: currentUser.name,
+      authorAvatar: currentUser.avatar,
+      text: `Story publicado ${currentStory.postedAt}.`,
+      mediaUri: currentStory.uri,
+      mediaType: currentStory.type === 'video' ? 'video' : 'image',
+      caption: currentStory.postedAt,
+    };
+  }, [currentStory, currentUser, isOwnStory]);
   const currentVideoSource = useMemo(
     () =>
       currentStory?.type === 'video'
@@ -291,8 +331,6 @@ export default function StoryViewer({ route, navigation }: Props) {
       return;
     }
 
-    setVideoDurationMs(0);
-    setVideoPositionMs(0);
     setIsVideoReady(currentStory.type !== 'video');
     setHasVideoError(false);
     progress.stopAnimation();
@@ -427,9 +465,8 @@ export default function StoryViewer({ route, navigation }: Props) {
     );
     const sourceLoadSubscription = videoPlayer.addListener(
       'sourceLoad',
-      ({ duration }) => {
+      () => {
         setHasVideoError(false);
-        setVideoDurationMs(Math.max(duration, 0) * 1000);
       }
     );
     const timeUpdateSubscription = videoPlayer.addListener(
@@ -438,8 +475,6 @@ export default function StoryViewer({ route, navigation }: Props) {
         const durationMs = Math.max(videoPlayer.duration, 0) * 1000;
         const positionMs = Math.max(currentTime, 0) * 1000;
 
-        setVideoDurationMs(durationMs);
-        setVideoPositionMs(positionMs);
         progress.setValue(durationMs > 0 ? positionMs / durationMs : 0);
       }
     );
@@ -544,6 +579,114 @@ export default function StoryViewer({ route, navigation }: Props) {
     Keyboard.dismiss();
   }, [input]);
 
+  const handleOpenPrivacy = useCallback(() => {
+    if (!currentUser?.isOwnStory || !currentStory) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    setIsInputFocused(false);
+    setIsPrivacySheetVisible(true);
+  }, [currentStory, currentUser?.isOwnStory]);
+
+  const handleOpenViewers = useCallback(() => {
+    if (!isOwnStory || !currentStory) {
+      return;
+    }
+
+    setIsViewersSheetVisible(true);
+  }, [currentStory, isOwnStory]);
+
+  const handleOpenStoryShare = useCallback(() => {
+    if (!isOwnStory || !currentStory) {
+      return;
+    }
+
+    setIsStoryShareVisible(true);
+  }, [currentStory, isOwnStory]);
+
+  const handleDeleteCurrentStory = useCallback(() => {
+    if (!isOwnStory || !currentStory || !currentUser) {
+      return;
+    }
+
+    Alert.alert(
+      'Excluir story?',
+      'Esse story sera removido e nao podera ser recuperado depois.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => {
+            const nextStories = storiesRepository.deleteStory(
+              currentUser.id,
+              currentStory.id
+            );
+            const remainingOwnStories = nextStories.find(
+              (storyUser) => storyUser.id === currentUser.id
+            );
+
+            queryClient.setQueryData(['stories'], nextStories);
+            setIsPrivacySheetVisible(false);
+            setIsViewersSheetVisible(false);
+            setIsStoryShareVisible(false);
+            setLikedStories((currentLikedState) => {
+              if (!currentLikedState[currentStory.id]) {
+                return currentLikedState;
+              }
+
+              const nextLikedState = { ...currentLikedState };
+              delete nextLikedState[currentStory.id];
+              return nextLikedState;
+            });
+
+            if (!remainingOwnStories) {
+              navigation.goBack();
+              return;
+            }
+
+            setCurrentStoryIndex((currentIndexValue) =>
+              Math.min(currentIndexValue, remainingOwnStories.stories.length - 1)
+            );
+          },
+        },
+      ]
+    );
+  }, [
+    currentStory,
+    currentUser,
+    isOwnStory,
+    navigation,
+    queryClient,
+    storiesRepository,
+  ]);
+
+  useEffect(() => {
+    if (
+      !currentUser?.isOwnStory &&
+      (isPrivacySheetVisible || isViewersSheetVisible || isStoryShareVisible)
+    ) {
+      setIsPrivacySheetVisible(false);
+      setIsViewersSheetVisible(false);
+      setIsStoryShareVisible(false);
+    }
+  }, [
+    currentUser?.isOwnStory,
+    isPrivacySheetVisible,
+    isStoryShareVisible,
+    isViewersSheetVisible,
+  ]);
+
+  useEffect(() => {
+    if (canMessageCurrentStory || !isInputFocused) {
+      return;
+    }
+
+    setIsInputFocused(false);
+    Keyboard.dismiss();
+  }, [canMessageCurrentStory, isInputFocused]);
+
   const storyGestures = useMemo(() => {
     const singleTapGesture = Gesture.Tap()
       .maxDuration(250)
@@ -564,6 +707,7 @@ export default function StoryViewer({ route, navigation }: Props) {
       .maxDelay(240)
       .onEnd((_, success) => {
         if (!success) return;
+        if (currentUser?.isOwnStory) return;
         runOnJS(toggleStoryLike)(true);
       });
 
@@ -601,6 +745,7 @@ export default function StoryViewer({ route, navigation }: Props) {
     goNextUser,
     goPrevious,
     goPreviousUser,
+    currentUser?.isOwnStory,
     setStoryPressPaused,
     toggleStoryLike,
   ]);
@@ -663,7 +808,11 @@ export default function StoryViewer({ route, navigation }: Props) {
           <View
             style={[
               styles.gestureSurface,
-              { bottom: (isInputFocused ? 148 : 108) + keyboardOffset },
+              {
+                bottom: canMessageCurrentStory
+                  ? (isInputFocused ? 148 : 108) + keyboardOffset
+                  : 96,
+              },
             ]}
           />
         </GestureDetector>
@@ -724,94 +873,171 @@ export default function StoryViewer({ route, navigation }: Props) {
               <TouchableOpacity style={styles.iconBtn}>
                 <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => navigation.goBack()}
-                style={styles.iconBtn}
-              >
-                <Ionicons name="close" size={22} color="#fff" />
-              </TouchableOpacity>
+              {currentUser.isOwnStory && (
+                <TouchableOpacity
+                  onPress={handleOpenPrivacy}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={18}
+                    color="#fff"
+                  />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
 
-        <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
-          <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
-            {emojiInsertFx && (
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.emojiInsertFx,
-                  {
-                    opacity: emojiInsertAnim.interpolate({
-                      inputRange: [0, 0.2, 1],
-                      outputRange: [0, 1, 0],
-                    }),
-                    transform: [
-                      {
-                        translateX: emojiInsertAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [54, 0],
-                        }),
-                      },
-                      {
-                        scale: emojiInsertAnim.interpolate({
-                          inputRange: [0, 0.35, 1],
-                          outputRange: [0.7, 1.1, 1],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <Text style={styles.emojiInsertText}>{emojiInsertFx}</Text>
-              </Animated.View>
-            )}
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              onFocus={() => setIsInputFocused(true)}
-              onBlur={() => setIsInputFocused(false)}
-              placeholder="Enviar mensagem..."
-              placeholderTextColor="#AEB2C8"
-              style={styles.input}
-            />
-            <Reanimated.View style={heartButtonStyle}>
-              <TouchableOpacity
-                style={styles.heartBtn}
-                onPress={() => toggleStoryLike()}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isCurrentStoryLiked ? 'Descurtir story' : 'Curtir story'
-                }
-              >
-                <Ionicons
-                  name={isCurrentStoryLiked ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={isCurrentStoryLiked ? '#FF7BA5' : '#FFFFFF'}
-                />
+        {canMessageCurrentStory && (
+          <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
+            <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
+              {emojiInsertFx && (
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.emojiInsertFx,
+                    {
+                      opacity: emojiInsertAnim.interpolate({
+                        inputRange: [0, 0.2, 1],
+                        outputRange: [0, 1, 0],
+                      }),
+                      transform: [
+                        {
+                          translateX: emojiInsertAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [54, 0],
+                          }),
+                        },
+                        {
+                          scale: emojiInsertAnim.interpolate({
+                            inputRange: [0, 0.35, 1],
+                            outputRange: [0.7, 1.1, 1],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <Text style={styles.emojiInsertText}>{emojiInsertFx}</Text>
+                </Animated.View>
+              )}
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                placeholder="Enviar mensagem..."
+                placeholderTextColor="#AEB2C8"
+                style={styles.input}
+              />
+              <Reanimated.View style={heartButtonStyle}>
+                <TouchableOpacity
+                  style={styles.heartBtn}
+                  onPress={() => toggleStoryLike()}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isCurrentStoryLiked ? 'Descurtir story' : 'Curtir story'
+                  }
+                >
+                  <Ionicons
+                    name={isCurrentStoryLiked ? 'heart' : 'heart-outline'}
+                    size={20}
+                    color={isCurrentStoryLiked ? '#FF7BA5' : '#FFFFFF'}
+                  />
+                </TouchableOpacity>
+              </Reanimated.View>
+              <TouchableOpacity style={styles.shareBtn} onPress={handleSend}>
+                <Ionicons name="paper-plane" size={18} color="#fff" />
               </TouchableOpacity>
-            </Reanimated.View>
-            <TouchableOpacity style={styles.shareBtn} onPress={handleSend}>
-              <Ionicons name="paper-plane" size={18} color="#fff" />
-            </TouchableOpacity>
-          </BlurView>
+            </BlurView>
 
-          {isInputFocused && (
-            <View style={styles.reactionRow}>
-              <View style={styles.suggestionWrap}>
-                {REACTIONS.map((emoji) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    onPress={() => showReactionFx(emoji)}
-                    style={styles.reactionBtn}
-                  >
-                    <Text style={styles.reactionText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
+            {isInputFocused && (
+              <View style={styles.reactionRow}>
+                <View style={styles.suggestionWrap}>
+                  {REACTIONS.map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      onPress={() => showReactionFx(emoji)}
+                      style={styles.reactionBtn}
+                    >
+                      <Text style={styles.reactionText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        )}
+
+        {isOwnStory && (
+          <View style={styles.bottomArea}>
+            <BlurView intensity={45} tint="dark" style={styles.ownStoryDock}>
+              <TouchableOpacity
+                onPress={handleOpenViewers}
+                activeOpacity={0.84}
+                style={styles.viewsSummary}
+              >
+                <View style={styles.viewsAvatarStack}>
+                  {previewViewers.map((viewer, index) => (
+                    <Image
+                      key={viewer.id}
+                      source={{ uri: viewer.avatar }}
+                      style={[
+                        styles.viewsAvatar,
+                        { marginLeft: index === 0 ? 0 : -10 },
+                      ]}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      recyclingKey={viewer.avatar}
+                    />
+                  ))}
+                  {previewViewers.length === 0 && (
+                    <View style={styles.viewsAvatarEmpty}>
+                      <Ionicons name="eye-outline" size={15} color="#BFC7F3" />
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.viewsCopy}>
+                  <View style={styles.viewsLabelRow}>
+                    <Ionicons name="eye-outline" size={14} color="#DCE1FF" />
+                    <Text style={styles.viewsLabel}>Visualizacoes</Text>
+                  </View>
+                  <Text style={styles.viewsValue}>
+                    {currentStoryViewers.length === 0
+                      ? 'Sem visualizacoes'
+                      : currentStoryViewers.length === 1
+                        ? '1 pessoa viu'
+                        : `${currentStoryViewers.length} pessoas viram`}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.ownStoryActions}>
+                <TouchableOpacity
+                  onPress={handleOpenStoryShare}
+                  activeOpacity={0.84}
+                  style={styles.ownStoryActionBtn}
+                >
+                  <Ionicons
+                    name="paper-plane-outline"
+                    size={20}
+                    color="#F5F7FF"
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleDeleteCurrentStory}
+                  activeOpacity={0.84}
+                  style={[styles.ownStoryActionBtn, styles.deleteActionBtn]}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FF8D9F" />
+                </TouchableOpacity>
+              </View>
+            </BlurView>
+          </View>
+        )}
 
         {emojiFx && (
           <Animated.View style={styles.emojiFx}>
@@ -819,22 +1045,36 @@ export default function StoryViewer({ route, navigation }: Props) {
           </Animated.View>
         )}
 
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.likeBurst, likeBurstStyle]}
-        >
-          <Ionicons name="heart" size={104} color="#FF7BA5" />
-        </Reanimated.View>
-
-        {currentStory.type === 'video' && (
-          <View style={styles.videoMeta}>
-            <Text style={styles.videoMetaText}>
-              {Math.floor(videoPositionMs / 1000)}s /{' '}
-              {Math.max(1, Math.floor(videoDurationMs / 1000))}s
-            </Text>
-          </View>
+        {!isOwnStory && (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.likeBurst, likeBurstStyle]}
+          >
+            <Ionicons name="heart" size={104} color="#FF7BA5" />
+          </Reanimated.View>
         )}
+
       </Animated.View>
+
+      <BottomSheetStoryPrivacy
+        visible={isPrivacySheetVisible}
+        ownerId={currentUser.isOwnStory ? currentUser.id : null}
+        storyId={currentStory.id}
+        currentPreset={currentStory.privacyPreset}
+        onClose={() => setIsPrivacySheetVisible(false)}
+      />
+      <BottomSheetStoryViewers
+        visible={isViewersSheetVisible}
+        viewers={currentStoryViewers}
+        onClose={() => setIsViewersSheetVisible(false)}
+      />
+      <BottomSheetShare
+        visible={isStoryShareVisible}
+        post={storySharePreview}
+        onClose={() => setIsStoryShareVisible(false)}
+        showAddToStoryAction={false}
+        shareContextLabel="Story"
+      />
     </SafeAreaView>
   );
 }
@@ -942,6 +1182,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  ownStoryDock: {
+    borderRadius: 28,
+    minHeight: 74,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(14,16,33,0.52)',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
   input: {
     flex: 1,
     color: '#FFFFFF',
@@ -967,6 +1221,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(108,99,255,0.38)',
+  },
+  viewsSummary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  viewsAvatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 52,
+  },
+  viewsAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: '#101327',
+  },
+  viewsAvatarEmpty: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  viewsCopy: {
+    flex: 1,
+  },
+  viewsLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  viewsLabel: {
+    color: '#DCE1FF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  viewsValue: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  ownStoryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ownStoryActionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  deleteActionBtn: {
+    backgroundColor: 'rgba(255,88,122,0.08)',
+    borderColor: 'rgba(255,141,159,0.18)',
   },
   reactionRow: {
     flexDirection: 'row',
@@ -1014,19 +1334,5 @@ const styles = StyleSheet.create({
     top: '46%',
     alignSelf: 'center',
     marginTop: -52,
-  },
-  videoMeta: {
-    position: 'absolute',
-    right: 14,
-    bottom: 120,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  videoMetaText: {
-    color: '#E6E8F5',
-    fontSize: 12,
-    fontWeight: '600',
   },
 });

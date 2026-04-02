@@ -6,4 +6,8 @@ export type {
   StoryMediaItem,
   StoryMediaType,
   StoryOverlay,
+  StoryPrivacyLists,
+  StoryPrivacyPerson,
+  StoryPrivacyPreset,
+  StoryViewerEntry,
 } from '@/features/stories/domain/entities/story';

@@ -60,6 +60,8 @@ export type BottomSheetShareProps = {
   post: SharePostPreview | null;
   onClose: () => void;
   onShareIncrement?: (postId: string, amount: number) => void;
+  showAddToStoryAction?: boolean;
+  shareContextLabel?: string;
 };
 
 const EMPTY_TARGETS: ShareTarget[] = [];
@@ -79,6 +81,8 @@ function BottomSheetShareComponent({
   post,
   onClose,
   onShareIncrement,
+  showAddToStoryAction = true,
+  shareContextLabel = 'Post',
 }: BottomSheetShareProps) {
   const insets = useSafeAreaInsets();
   const navigation =
@@ -168,13 +172,13 @@ function BottomSheetShareComponent({
     }
 
     const textBlocks = [
-      `Confira este post de ${post.authorName} no KaChan!`,
+      `Confira este ${shareContextLabel.toLowerCase()} de ${post.authorName} no KaChan!`,
       post.text,
       post.mediaUri,
     ].filter(Boolean);
 
     return textBlocks.join('\n\n');
-  }, [post]);
+  }, [post, shareContextLabel]);
 
   const handleInternalSend = useCallback(() => {
     if (!post || selectedCount === 0) {
@@ -191,13 +195,17 @@ function BottomSheetShareComponent({
     resetState();
 
     InteractionManager.runAfterInteractions(() => {
-      Alert.alert('Compartilhado', `Post enviado para ${destinationLabel}.`);
+      Alert.alert(
+        'Compartilhado',
+        `${shareContextLabel} enviado para ${destinationLabel}.`
+      );
     });
   }, [
     onClose,
     onShareIncrement,
     post,
     resetState,
+    shareContextLabel,
     selectedCount,
     selectedTargets,
   ]);
@@ -267,7 +275,9 @@ function BottomSheetShareComponent({
               recyclingKey={post.authorAvatar}
             />
             <View style={styles.postPreviewTextWrap}>
-              <Text style={styles.postPreviewTitle}>Post de {post.authorName}</Text>
+              <Text style={styles.postPreviewTitle}>
+                {shareContextLabel} de {post.authorName}
+              </Text>
               <Text style={styles.postPreviewText} numberOfLines={2}>
                 {post.text}
               </Text>
@@ -296,7 +306,7 @@ function BottomSheetShareComponent({
         </View>
       </View>
     ),
-    [post, searchQuery, selectedCount]
+    [post, searchQuery, selectedCount, shareContextLabel]
   );
 
   const renderFooter = useCallback(
@@ -315,20 +325,23 @@ function BottomSheetShareComponent({
           ]}
         >
           <View style={styles.footerRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.secondaryAction,
-                pressed && styles.secondaryActionPressed,
-              ]}
-              onPress={handleAddToStory}
-            >
-              <Ionicons name="add-circle-outline" size={20} color="#DCE1FF" />
-              <Text style={styles.secondaryActionText}>Story</Text>
-            </Pressable>
+            {showAddToStoryAction && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  pressed && styles.secondaryActionPressed,
+                ]}
+                onPress={handleAddToStory}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#DCE1FF" />
+                <Text style={styles.secondaryActionText}>Story</Text>
+              </Pressable>
+            )}
 
             <Pressable
               style={({ pressed }) => [
                 styles.secondaryAction,
+                !showAddToStoryAction && styles.secondaryActionExpanded,
                 pressed && styles.secondaryActionPressed,
               ]}
               onPress={handleExternalShare}
@@ -375,6 +388,7 @@ function BottomSheetShareComponent({
       handleExternalShare,
       handleInternalSend,
       insets.bottom,
+      showAddToStoryAction,
       selectedCount,
     ]
   );
@@ -597,6 +611,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
+  },
+  secondaryActionExpanded: {
+    width: 104,
   },
   secondaryActionPressed: {
     opacity: 0.82,
