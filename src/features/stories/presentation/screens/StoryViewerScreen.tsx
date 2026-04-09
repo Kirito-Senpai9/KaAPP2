@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Animated,
+  BackHandler,
   Dimensions,
   Keyboard,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -19,6 +22,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
+  Easing as ReanimatedEasing,
+  interpolate,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -41,6 +46,10 @@ type Props = RootStackScreenProps<'StoryViewer'>;
 const IMAGE_DURATION_MS = 5000;
 const REACTIONS = ['â¤ï¸', 'ðŸ˜‚', 'ðŸ”¥', 'ðŸ˜®', 'ðŸ‘'];
 const SCREEN_WIDTH = Dimensions.get('window').width;
+
+const MENU_ENTER_DURATION = 210;
+const MENU_EXIT_DURATION = 130;
+const MENU_EASE_OUT = ReanimatedEasing.bezier(0.2, 0.9, 0.18, 1);
 
 export default function StoryViewer({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -69,6 +78,8 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [isPrivacySheetVisible, setIsPrivacySheetVisible] = useState(false);
   const [isViewersSheetVisible, setIsViewersSheetVisible] = useState(false);
   const [isStoryShareVisible, setIsStoryShareVisible] = useState(false);
+  const [isOptionsMenuVisible, setIsOptionsMenuVisible] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState({ top: 0, left: 0 });
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -80,9 +91,11 @@ export default function StoryViewer({ route, navigation }: Props) {
   const storyStartAtRef = useRef<number>(0);
   const storyRemainingRef = useRef<number>(IMAGE_DURATION_MS);
   const videoSourceKeyRef = useRef<string | null>(null);
+  const menuBtnRef = useRef<React.ElementRef<typeof TouchableOpacity>>(null);
   const likeBurstScale = useSharedValue(0.6);
   const likeBurstOpacity = useSharedValue(0);
   const heartButtonScale = useSharedValue(1);
+  const menuProgress = useSharedValue(0);
   const videoPlayer = useVideoPlayer(null, (player) => {
     player.loop = false;
     player.muted = false;
@@ -99,7 +112,8 @@ export default function StoryViewer({ route, navigation }: Props) {
     isInputFocused ||
     isPrivacySheetVisible ||
     isViewersSheetVisible ||
-    isStoryShareVisible;
+    isStoryShareVisible ||
+    isOptionsMenuVisible;
   const isCurrentStoryLiked = currentStory
     ? !!likedStories[currentStory.id]
     : false;
@@ -144,6 +158,11 @@ export default function StoryViewer({ route, navigation }: Props) {
     transform: [{ scale: heartButtonScale.value }],
   }));
 
+  const menuAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: menuProgress.value,
+    transform: [{ translateY: interpolate(menuProgress.value, [0, 1], [-8, 0]) }],
+  }));
+
   const triggerHeartBurst = useCallback(() => {
     likeBurstScale.value = 0.64;
     likeBurstOpacity.value = 0;
@@ -163,6 +182,20 @@ export default function StoryViewer({ route, navigation }: Props) {
       withSpring(1, { damping: 10, stiffness: 240 })
     );
   }, [heartButtonScale]);
+
+  const closeOptionsMenu = useCallback(() => {
+    menuProgress.value = withTiming(0, { duration: MENU_EXIT_DURATION, easing: MENU_EASE_OUT });
+    setTimeout(() => setIsOptionsMenuVisible(false), MENU_EXIT_DURATION + 10);
+  }, [menuProgress]);
+
+  const openOptionsMenu = useCallback(() => {
+    menuBtnRef.current?.measure((_x: number, _y: number, w: number, h: number, pageX: number, pageY: number) => {
+      const menuWidth = 190;
+      setMenuAnchor({ top: pageY + h + 6, left: pageX - menuWidth + w });
+      menuProgress.value = 0;
+      setIsOptionsMenuVisible(true);
+    });
+  }, [menuProgress]);
 
   const toggleStoryLike = useCallback(
     (forceLike = false) => {
@@ -687,6 +720,20 @@ export default function StoryViewer({ route, navigation }: Props) {
     Keyboard.dismiss();
   }, [canMessageCurrentStory, isInputFocused]);
 
+  useEffect(() => {
+    if (!isOptionsMenuVisible) return;
+    menuProgress.value = withTiming(1, { duration: MENU_ENTER_DURATION, easing: MENU_EASE_OUT });
+  }, [isOptionsMenuVisible, menuProgress]);
+
+  useEffect(() => {
+    if (!isOptionsMenuVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeOptionsMenu();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isOptionsMenuVisible, closeOptionsMenu]);
+
   const storyGestures = useMemo(() => {
     const singleTapGesture = Gesture.Tap()
       .maxDuration(250)
@@ -870,9 +917,15 @@ export default function StoryViewer({ route, navigation }: Props) {
                   />
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={styles.iconBtn}>
-                <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-              </TouchableOpacity>
+              {!isOwnStory && (
+                <TouchableOpacity
+                  ref={menuBtnRef}
+                  style={styles.iconBtn}
+                  onPress={openOptionsMenu}
+                >
+                  <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+                </TouchableOpacity>
+              )}
               {currentUser.isOwnStory && (
                 <TouchableOpacity
                   onPress={handleOpenPrivacy}
@@ -1075,6 +1128,40 @@ export default function StoryViewer({ route, navigation }: Props) {
         showAddToStoryAction={false}
         shareContextLabel="Story"
       />
+
+      <Modal
+        transparent
+        visible={isOptionsMenuVisible}
+        animationType="none"
+        onRequestClose={closeOptionsMenu}
+      >
+        <View style={styles.storyMenuOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeOptionsMenu} />
+          <Reanimated.View
+            style={[styles.storyContextMenu, menuAnimatedStyle, menuAnchor]}
+          >
+            <TouchableOpacity
+              style={styles.storyMenuItem}
+              onPress={closeOptionsMenu}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="flag-outline" size={18} color="#FF6C7A" />
+              <Text style={[styles.storyMenuLabel, styles.storyMenuLabelDanger]}>Denunciar</Text>
+            </TouchableOpacity>
+
+            <View style={styles.storyMenuDivider} />
+
+            <TouchableOpacity
+              style={styles.storyMenuItem}
+              onPress={closeOptionsMenu}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="notifications-off-outline" size={18} color="#E4E7FB" />
+              <Text style={styles.storyMenuLabel}>Silenciar</Text>
+            </TouchableOpacity>
+          </Reanimated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1334,5 +1421,45 @@ const styles = StyleSheet.create({
     top: '46%',
     alignSelf: 'center',
     marginTop: -52,
+  },
+
+  storyMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(6, 7, 14, 0.25)',
+  },
+  storyContextMenu: {
+    position: 'absolute',
+    width: 190,
+    borderRadius: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(18, 22, 42, 0.97)',
+    shadowColor: '#03050F',
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  storyMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 44,
+    paddingHorizontal: 14,
+  },
+  storyMenuLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E4E7FB',
+  },
+  storyMenuLabelDanger: {
+    color: '#FF6C7A',
+  },
+  storyMenuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(237, 239, 255, 0.16)',
+    marginVertical: 6,
+    marginHorizontal: 10,
   },
 });
