@@ -287,12 +287,7 @@ export default function Perfil() {
 
   const renderHeader = useCallback(() => (
     <View style={styles.header}>
-      <Pressable
-        style={styles.bannerWrap}
-        onPress={() => pickProfileImage('banner')}
-        accessibilityRole="button"
-        accessibilityLabel="Alterar banner do perfil"
-      >
+      <View style={styles.bannerWrap}>
         <Image
           source={{ uri: bannerUri }}
           style={styles.bannerImage}
@@ -305,11 +300,33 @@ export default function Perfil() {
           colors={['rgba(14,14,18,0.05)', 'rgba(14,14,18,0.48)', '#0E0E12']}
           style={styles.bannerOverlay}
         />
+        <Pressable
+          style={styles.bannerTouch}
+          onPress={() => pickProfileImage('banner')}
+          accessibilityRole="button"
+          accessibilityLabel="Alterar banner do perfil"
+        />
+        <View style={[styles.bannerControls, { top: insets.top + 8 }]}>
+          <Pressable
+            style={styles.bannerIconButton}
+            accessibilityRole="button"
+            accessibilityLabel="Loja"
+          >
+            <Ionicons name="storefront-outline" size={21} color="#FFFFFF" />
+          </Pressable>
+          <Pressable
+            style={styles.bannerIconButton}
+            accessibilityRole="button"
+            accessibilityLabel="Menu do perfil"
+          >
+            <Ionicons name="menu-outline" size={24} color="#FFFFFF" />
+          </Pressable>
+        </View>
         <View style={styles.bannerAction}>
           <Ionicons name="camera-outline" size={17} color="#FFFFFF" />
           <Text style={styles.bannerActionText}>Banner</Text>
         </View>
-      </Pressable>
+      </View>
 
       <View style={styles.identity}>
         <Pressable
@@ -359,7 +376,7 @@ export default function Perfil() {
       <View style={styles.gamerStats}>
         {GAMER_STATS.map((stat) => (
           <View style={styles.gamerStat} key={stat.label}>
-            <Ionicons name={stat.icon} size={20} color={stat.color} />
+            <Ionicons name={stat.icon} size={17} color={stat.color} />
             <Text style={styles.gamerStatValue} numberOfLines={1}>{stat.value}</Text>
             <Text style={styles.gamerStatLabel} numberOfLines={1}>{stat.label}</Text>
           </View>
@@ -390,7 +407,7 @@ export default function Perfil() {
         })}
       </View>
     </View>
-  ), [activeTab, avatarUri, bannerUri, openExternalProfileLink, pickProfileImage]);
+  ), [activeTab, avatarUri, bannerUri, insets.top, openExternalProfileLink, pickProfileImage]);
 
   const listEmptyComponent = useMemo(() => (
     <View style={styles.emptyState}>
@@ -407,18 +424,6 @@ export default function Perfil() {
         end={[1, 1]}
         style={StyleSheet.absoluteFill}
       />
-
-      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.logo}>KaChan!</Text>
-        <View style={styles.topActions}>
-          <Pressable style={styles.topActionButton} accessibilityRole="button" accessibilityLabel="Notificacoes">
-            <Ionicons name="notifications-outline" size={21} color="#E5E7F4" />
-          </Pressable>
-          <Pressable style={styles.topActionButton} accessibilityRole="button" accessibilityLabel="Configuracoes do perfil">
-            <Ionicons name="settings-outline" size={21} color="#E5E7F4" />
-          </Pressable>
-        </View>
-      </View>
 
       <FlashList
         data={filteredVideos}
@@ -442,39 +447,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0E0E12',
   },
-  topBar: {
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  logo: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 0,
-  },
-  topActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  topActionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
   header: {
-    paddingBottom: 4,
+    paddingBottom: 0,
   },
   bannerWrap: {
-    height: 186,
+    height: 214,
     overflow: 'hidden',
     backgroundColor: '#15182F',
   },
@@ -485,13 +462,33 @@ const styles = StyleSheet.create({
   bannerOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
+  bannerTouch: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bannerControls: {
+    position: 'absolute',
+    right: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bannerIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(8,10,20,0.62)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
   bannerAction: {
     position: 'absolute',
     right: 14,
-    top: 14,
-    height: 34,
-    borderRadius: 17,
-    paddingHorizontal: 12,
+    bottom: 50,
+    height: 30,
+    borderRadius: 15,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -501,13 +498,13 @@ const styles = StyleSheet.create({
   },
   bannerActionText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   identity: {
     alignItems: 'center',
     paddingHorizontal: 18,
-    marginTop: -52,
+    marginTop: -68,
   },
   avatarButton: {
     width: 106,
@@ -538,7 +535,7 @@ const styles = StyleSheet.create({
     borderColor: '#0E0E12',
   },
   profileName: {
-    marginTop: 8,
+    marginTop: 6,
     maxWidth: width - 48,
     color: '#FFFFFF',
     fontSize: 22,
@@ -553,7 +550,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   accountMetrics: {
-    marginTop: 18,
+    marginTop: 14,
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
@@ -576,14 +573,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   bio: {
-    marginTop: 18,
+    marginTop: 14,
     color: '#E8EAF8',
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
   },
   bioLink: {
-    marginTop: 10,
+    marginTop: 8,
     maxWidth: width - 48,
     minHeight: 32,
     borderRadius: 16,
@@ -602,8 +599,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   gamerStats: {
-    marginTop: 22,
-    paddingVertical: 15,
+    marginTop: 16,
+    paddingVertical: 10,
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -613,16 +610,16 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
-    gap: 5,
+    gap: 3,
   },
   gamerStatValue: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
   },
   gamerStatLabel: {
     color: '#7F86B2',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
   videoTabs: {
