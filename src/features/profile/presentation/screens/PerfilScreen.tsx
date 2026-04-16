@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -9,8 +9,13 @@ import {
   View,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
+import {
+  BottomSheetBackdrop,
+  BottomSheetFlatList,
+  BottomSheetModal,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,9 +26,9 @@ const TAB_BAR_HEIGHT = 112;
 const GRID_GAP = 2;
 const TILE_SIZE = Math.floor((width - GRID_GAP * 2) / 3);
 
-type ProfileImageKind = 'avatar' | 'banner';
-
 type VideoTabId = 'posts' | 'private' | 'reposts' | 'favorites' | 'liked';
+
+type UserStatusId = 'online' | 'away' | 'dnd' | 'invisible';
 
 type AccountMetric = {
   label: string;
@@ -49,6 +54,12 @@ type ProfileVideo = {
   thumbnail: string;
   views: number;
   isPrivate?: boolean;
+};
+
+type UserStatusOption = {
+  id: UserStatusId;
+  label: string;
+  color: string;
 };
 
 const PROFILE = {
@@ -84,6 +95,13 @@ const VIDEO_TABS: VideoTab[] = [
   { id: 'reposts', accessibilityLabel: 'Repostagens', icon: 'repeat-outline' },
   { id: 'favorites', accessibilityLabel: 'Videos favoritos', icon: 'bookmark-outline' },
   { id: 'liked', accessibilityLabel: 'Videos curtidos', icon: 'heart-outline' },
+];
+
+const USER_STATUS_OPTIONS: UserStatusOption[] = [
+  { id: 'online', label: 'Disponivel', color: '#35C46B' },
+  { id: 'away', label: 'Ausente', color: '#FFC857' },
+  { id: 'dnd', label: 'Nao perturbar', color: '#F04F63' },
+  { id: 'invisible', label: 'Invisivel', color: '#8C94A8' },
 ];
 
 const PROFILE_VIDEOS: ProfileVideo[] = [
@@ -217,47 +235,99 @@ const ProfileVideoTile = memo(function ProfileVideoTile({ item }: { item: Profil
 
 export default function Perfil() {
   const insets = useSafeAreaInsets();
-  const [bannerUri, setBannerUri] = useState(PROFILE.banner);
-  const [avatarUri, setAvatarUri] = useState(PROFILE.avatar);
+  const statusSheetRef = useRef<BottomSheetModal>(null);
   const [activeTab, setActiveTab] = useState<VideoTabId>('posts');
+  const [selectedStatus, setSelectedStatus] = useState<UserStatusId>('online');
+  const statusSnapPoints = useMemo(() => ['62%'], []);
 
   const filteredVideos = useMemo(
     () => PROFILE_VIDEOS.filter((video) => video.tab === activeTab),
     [activeTab]
   );
 
-  const pickProfileImage = useCallback(async (kind: ProfileImageKind) => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const selectedStatusOption = useMemo(
+    () => USER_STATUS_OPTIONS.find((status) => status.id === selectedStatus) ?? USER_STATUS_OPTIONS[0],
+    [selectedStatus]
+  );
 
-      if (!permission.granted) {
-        Alert.alert('Permissao necessaria', 'Libere acesso a galeria para atualizar sua imagem.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.9,
-        allowsEditing: kind === 'avatar',
-        aspect: kind === 'avatar' ? [1, 1] : undefined,
-        allowsMultipleSelection: false,
-      });
-
-      if (result.canceled || !result.assets?.[0]?.uri) {
-        return;
-      }
-
-      if (kind === 'avatar') {
-        setAvatarUri(result.assets[0].uri);
-        return;
-      }
-
-      setBannerUri(result.assets[0].uri);
-    } catch (error) {
-      console.warn('[PerfilScreen] Falha ao escolher imagem', error);
-      Alert.alert('Nao foi possivel atualizar', 'Tente escolher outra imagem da galeria.');
-    }
+  const openStatusSheet = useCallback(() => {
+    statusSheetRef.current?.present();
   }, []);
+
+  const closeStatusSheet = useCallback(() => {
+    statusSheetRef.current?.dismiss();
+  }, []);
+
+  const selectStatus = useCallback((statusId: UserStatusId) => {
+    setSelectedStatus(statusId);
+    statusSheetRef.current?.dismiss();
+  }, []);
+
+  const openCustomStatus = useCallback(() => {
+    closeStatusSheet();
+    Alert.alert('Status personalizado', 'Essa opcao sera configurada na tela de edicao do perfil.');
+  }, [closeStatusSheet]);
+
+  const renderStatusBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+      />
+    ),
+    []
+  );
+
+  const renderStatusOption = useCallback(
+    ({ item, index }: { item: UserStatusOption; index: number }) => {
+      const isSelected = item.id === selectedStatus;
+      const isLast = index === USER_STATUS_OPTIONS.length - 1;
+
+      return (
+        <Pressable
+          style={[
+            styles.statusOption,
+            index === 0 && styles.statusOptionFirst,
+            isLast && styles.statusOptionLast,
+          ]}
+          onPress={() => selectStatus(item.id)}
+          accessibilityRole="radio"
+          accessibilityState={{ checked: isSelected }}
+          accessibilityLabel={`Selecionar status ${item.label}`}
+        >
+          <View style={[styles.statusOptionDot, { backgroundColor: item.color }]} />
+          <Text style={styles.statusOptionLabel}>{item.label}</Text>
+          <View style={[styles.statusRadio, isSelected && styles.statusRadioSelected]}>
+            {isSelected && <View style={styles.statusRadioInner} />}
+          </View>
+        </Pressable>
+      );
+    },
+    [selectStatus, selectedStatus]
+  );
+
+  const statusSheetHeader = useMemo(() => (
+    <View>
+      <Text style={styles.statusSheetTitle}>Mudar status online</Text>
+      <Text style={styles.statusSheetHint}>Escolha como voce aparece agora.</Text>
+      <Text style={styles.statusSheetSubtitle}>Status online</Text>
+    </View>
+  ), []);
+
+  const statusSheetFooter = useMemo(() => (
+    <Pressable
+      style={styles.customStatusButton}
+      onPress={openCustomStatus}
+      accessibilityRole="button"
+      accessibilityLabel="Definir status personalizado"
+    >
+      <Ionicons name="happy-outline" size={22} color="#DDE1FF" />
+      <Text style={styles.customStatusText}>Definir status personalizado</Text>
+      <Ionicons name="chevron-forward" size={18} color="#8F96C3" />
+    </Pressable>
+  ), [openCustomStatus]);
 
   const openExternalProfileLink = useCallback(async () => {
     if (!isSafeHttpUrl(PROFILE.linkUrl)) {
@@ -289,24 +359,18 @@ export default function Perfil() {
     <View style={styles.header}>
       <View style={styles.bannerWrap}>
         <Image
-          source={{ uri: bannerUri }}
+          source={{ uri: PROFILE.banner }}
           style={styles.bannerImage}
           contentFit="cover"
           cachePolicy="memory-disk"
-          recyclingKey={bannerUri}
+          recyclingKey={PROFILE.banner}
           accessibilityLabel="Banner do perfil"
         />
         <LinearGradient
           colors={['rgba(14,14,18,0.05)', 'rgba(14,14,18,0.48)', '#0E0E12']}
           style={styles.bannerOverlay}
         />
-        <Pressable
-          style={styles.bannerTouch}
-          onPress={() => pickProfileImage('banner')}
-          accessibilityRole="button"
-          accessibilityLabel="Alterar banner do perfil"
-        />
-        <View style={[styles.bannerControls, { top: insets.top + 8 }]}>
+        <View style={[styles.bannerControls, { top: insets.top }]}>
           <Pressable
             style={styles.bannerIconButton}
             accessibilityRole="button"
@@ -322,31 +386,27 @@ export default function Perfil() {
             <Ionicons name="menu-outline" size={24} color="#FFFFFF" />
           </Pressable>
         </View>
-        <View style={styles.bannerAction}>
-          <Ionicons name="camera-outline" size={17} color="#FFFFFF" />
-          <Text style={styles.bannerActionText}>Banner</Text>
-        </View>
       </View>
 
       <View style={styles.identity}>
-        <Pressable
+        <View
           style={styles.avatarButton}
-          onPress={() => pickProfileImage('avatar')}
-          accessibilityRole="button"
-          accessibilityLabel="Alterar foto de perfil"
         >
           <Image
-            source={{ uri: avatarUri }}
+            source={{ uri: PROFILE.avatar }}
             style={styles.avatar}
             contentFit="cover"
             cachePolicy="memory-disk"
-            recyclingKey={avatarUri}
+            recyclingKey={PROFILE.avatar}
             accessibilityLabel="Foto de perfil"
           />
-          <View style={styles.avatarEditBadge}>
-            <Ionicons name="camera" size={14} color="#FFFFFF" />
-          </View>
-        </Pressable>
+          <Pressable
+            style={[styles.statusBadge, { backgroundColor: selectedStatusOption.color }]}
+            onPress={openStatusSheet}
+            accessibilityRole="button"
+            accessibilityLabel={`Alterar status. Status atual: ${selectedStatusOption.label}`}
+          />
+        </View>
 
         <Text style={styles.profileName} numberOfLines={1}>{PROFILE.name}</Text>
         <Text style={styles.profileHandle} numberOfLines={1}>{PROFILE.handle}</Text>
@@ -407,7 +467,7 @@ export default function Perfil() {
         })}
       </View>
     </View>
-  ), [activeTab, avatarUri, bannerUri, insets.top, openExternalProfileLink, pickProfileImage]);
+  ), [activeTab, insets.top, openExternalProfileLink, openStatusSheet, selectedStatusOption]);
 
   const listEmptyComponent = useMemo(() => (
     <View style={styles.emptyState}>
@@ -438,6 +498,32 @@ export default function Perfil() {
           paddingBottom: TAB_BAR_HEIGHT + insets.bottom,
         }}
       />
+
+      <BottomSheetModal
+        ref={statusSheetRef}
+        index={0}
+        snapPoints={statusSnapPoints}
+        topInset={insets.top}
+        bottomInset={insets.bottom}
+        enablePanDownToClose
+        enableDynamicSizing={false}
+        handleIndicatorStyle={styles.statusSheetHandle}
+        backgroundStyle={styles.statusSheetBackground}
+        backdropComponent={renderStatusBackdrop}
+      >
+        <BottomSheetFlatList
+          data={USER_STATUS_OPTIONS}
+          keyExtractor={(item: UserStatusOption) => item.id}
+          renderItem={renderStatusOption}
+          ListHeaderComponent={statusSheetHeader}
+          ListFooterComponent={statusSheetFooter}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.statusSheetContent,
+            { paddingBottom: Math.max(insets.bottom, 16) + 18 },
+          ]}
+        />
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }
@@ -462,9 +548,6 @@ const styles = StyleSheet.create({
   bannerOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  bannerTouch: {
-    ...StyleSheet.absoluteFillObject,
-  },
   bannerControls: {
     position: 'absolute',
     right: 14,
@@ -475,31 +558,8 @@ const styles = StyleSheet.create({
   bannerIconButton: {
     width: 38,
     height: 38,
-    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(8,10,20,0.62)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  bannerAction: {
-    position: 'absolute',
-    right: 14,
-    bottom: 50,
-    height: 30,
-    borderRadius: 15,
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(8,10,20,0.62)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  bannerActionText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
   },
   identity: {
     alignItems: 'center',
@@ -521,7 +581,7 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
   },
-  avatarEditBadge: {
+  statusBadge: {
     position: 'absolute',
     right: 3,
     bottom: 6,
@@ -582,15 +642,11 @@ const styles = StyleSheet.create({
   bioLink: {
     marginTop: 8,
     maxWidth: width - 48,
-    minHeight: 32,
-    borderRadius: 16,
-    paddingHorizontal: 12,
+    minHeight: 24,
+    paddingHorizontal: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(108,99,255,0.16)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(174,183,255,0.22)',
   },
   bioLinkText: {
     flexShrink: 1,
@@ -686,5 +742,119 @@ const styles = StyleSheet.create({
     color: '#A6ADCE',
     fontSize: 14,
     fontWeight: '700',
+  },
+  statusSheetBackground: {
+    backgroundColor: '#090A12',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  statusSheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 99,
+    backgroundColor: 'rgba(220,227,255,0.42)',
+  },
+  statusSheetContent: {
+    paddingHorizontal: 0,
+    paddingTop: 12,
+  },
+  statusSheetTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  statusSheetHint: {
+    color: '#8F96C3',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  statusSheetSubtitle: {
+    color: '#C3C8E8',
+    fontSize: 13,
+    fontWeight: '700',
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  statusOptions: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  statusOption: {
+    minHeight: 54,
+    marginHorizontal: 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.07)',
+  },
+  statusOptionFirst: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  statusOptionLast: {
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  statusOptionDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginRight: 16,
+  },
+  statusOptionLabel: {
+    flex: 1,
+    color: '#F4F6FF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  statusRadio: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(225,229,255,0.62)',
+  },
+  statusRadioSelected: {
+    borderColor: '#7A72FF',
+  },
+  statusRadioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#7A72FF',
+  },
+  customStatusButton: {
+    minHeight: 56,
+    marginTop: 14,
+    marginHorizontal: 16,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  customStatusText: {
+    flex: 1,
+    color: '#F4F6FF',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
