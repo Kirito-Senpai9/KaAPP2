@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,7 +12,6 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -24,13 +24,21 @@ import Reanimated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import {
+  DEFAULT_PROFILE_MEDIA_TRANSFORM,
   PROFILE_GAMER_STATS,
   type EditableProfileState,
   type GamerStatId,
+  type ProfileMedia,
   type ProfileGamerStat,
   type SocialLinkId,
   useProfileStore,
 } from '@/features/profile/presentation/store/useProfileStore';
+import { ProfileMediaEditorModal } from '@/features/profile/presentation/components/ProfileMediaEditorModal';
+import { ProfileMediaViewport } from '@/features/profile/presentation/components/ProfileMediaViewport';
+import {
+  getProfileMediaKindFromAsset,
+  isGifAsset,
+} from '@/features/profile/presentation/utils/profileMedia';
 
 type EditableImageKind = 'avatar' | 'banner';
 
@@ -53,6 +61,10 @@ type DraggableGamerStatRowProps = {
 };
 
 const STAT_ROW_HEIGHT = 74;
+const { width: windowWidth } = Dimensions.get('window');
+const EDIT_PROFILE_BANNER_HEIGHT = 190;
+const EDIT_PROFILE_BANNER_WIDTH = windowWidth - 32;
+const EDIT_PROFILE_AVATAR_SIZE = 84;
 
 const SOCIAL_LINK_OPTIONS: SocialLinkOption[] = [
   { id: 'tiktok', label: 'TikTok', icon: 'logo-tiktok', color: '#FFFFFF', placeholder: 'https://www.tiktok.com/@usuario' },
@@ -188,6 +200,10 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
   const [socialLinks, setSocialLinks] = useState(savedSocialLinks);
   const [gamerStatOrder, setGamerStatOrder] = useState<GamerStatId[]>(savedGamerStatOrder);
   const [isDraggingStat, setIsDraggingStat] = useState(false);
+  const [mediaEditorState, setMediaEditorState] = useState<{
+    kind: EditableImageKind;
+    media: ProfileMedia;
+  } | null>(null);
 
   const orderedStats = useMemo(
     () => gamerStatOrder.map((statId) => PROFILE_GAMER_STATS[statId]),
@@ -195,6 +211,14 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
   );
 
   const canSave = name.trim().length > 0 && normalizeHandle(handle).length > 1;
+
+  const openMediaEditor = useCallback((kind: EditableImageKind, media: ProfileMedia) => {
+    setMediaEditorState({ kind, media });
+  }, []);
+
+  const closeMediaEditor = useCallback(() => {
+    setMediaEditorState(null);
+  }, []);
 
   const pickProfileImage = useCallback(async (kind: EditableImageKind) => {
     try {
@@ -207,9 +231,8 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        quality: 0.9,
-        allowsEditing: kind === 'avatar',
-        aspect: kind === 'avatar' ? [1, 1] : undefined,
+        quality: kind === 'banner' ? 1 : 0.95,
+        allowsEditing: false,
         allowsMultipleSelection: false,
       });
 
@@ -217,17 +240,45 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
         return;
       }
 
-      if (kind === 'avatar') {
-        setAvatar(result.assets[0].uri);
+      const asset = result.assets[0];
+      const pickedMediaKind = getProfileMediaKindFromAsset(asset);
+
+      if (kind === 'avatar' && isGifAsset(asset)) {
+        Alert.alert('GIF indisponivel no avatar', 'Neste primeiro passo, GIF animado esta liberado apenas para o banner.');
         return;
       }
 
-      setBanner(result.assets[0].uri);
+      openMediaEditor(kind, {
+        uri: asset.uri,
+        width: asset.width ?? (kind === 'avatar' ? avatar.width : banner.width),
+        height: asset.height ?? (kind === 'avatar' ? avatar.height : banner.height),
+        kind: kind === 'banner' ? pickedMediaKind : 'image',
+        transform: { ...DEFAULT_PROFILE_MEDIA_TRANSFORM },
+      });
     } catch (error) {
       console.warn('[EditarPerfilScreen] Falha ao escolher imagem', error);
       Alert.alert('Nao foi possivel atualizar', 'Tente escolher outra imagem da galeria.');
     }
-  }, []);
+  }, [avatar.height, avatar.width, banner.height, banner.width, openMediaEditor]);
+
+  const applyMediaTransform = useCallback((transform: ProfileMedia['transform']) => {
+    if (!mediaEditorState) {
+      return;
+    }
+
+    const nextMedia = {
+      ...mediaEditorState.media,
+      transform,
+    };
+
+    if (mediaEditorState.kind === 'avatar') {
+      setAvatar(nextMedia);
+    } else {
+      setBanner(nextMedia);
+    }
+
+    setMediaEditorState(null);
+  }, [mediaEditorState]);
 
   const updateSocialLink = useCallback((id: SocialLinkId, value: string) => {
     setSocialLinks((currentLinks) => ({
@@ -364,14 +415,20 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
         >
           <View style={styles.profilePreview}>
             <View style={styles.previewBannerWrap}>
-              <Image
-                source={{ uri: banner }}
-                style={styles.bannerPreview}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                recyclingKey={banner}
-                accessibilityLabel="Preview do banner do perfil"
-              />
+              <Pressable
+                style={styles.previewMediaTouch}
+                onPress={() => openMediaEditor('banner', banner)}
+                accessibilityRole="button"
+                accessibilityLabel="Ajustar enquadramento do banner"
+              >
+                <ProfileMediaViewport
+                  media={banner}
+                  viewportWidth={EDIT_PROFILE_BANNER_WIDTH}
+                  viewportHeight={EDIT_PROFILE_BANNER_HEIGHT}
+                  style={styles.bannerPreview}
+                  accessibilityLabel="Preview do banner do perfil"
+                />
+              </Pressable>
               <LinearGradient
                 colors={['rgba(14,14,18,0.04)', 'rgba(14,14,18,0.48)', '#0E0E12']}
                 style={styles.previewShade}
@@ -383,20 +440,27 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
                 accessibilityLabel="Trocar banner do perfil"
               >
                 <Ionicons name="image-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.mediaButtonText}>Banner</Text>
+                <Text style={styles.mediaButtonText}>Trocar</Text>
               </Pressable>
             </View>
 
             <View style={styles.previewIdentity}>
               <View style={styles.avatarPreviewWrap}>
-                <Image
-                  source={{ uri: avatar }}
-                  style={styles.avatarPreview}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  recyclingKey={avatar}
-                  accessibilityLabel="Preview da foto de perfil"
-                />
+                <Pressable
+                  style={styles.previewMediaTouch}
+                  onPress={() => openMediaEditor('avatar', avatar)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ajustar enquadramento da foto de perfil"
+                >
+                  <ProfileMediaViewport
+                    media={avatar}
+                    viewportWidth={EDIT_PROFILE_AVATAR_SIZE}
+                    viewportHeight={EDIT_PROFILE_AVATAR_SIZE}
+                    borderRadius={EDIT_PROFILE_AVATAR_SIZE / 2}
+                    style={styles.avatarPreview}
+                    accessibilityLabel="Preview da foto de perfil"
+                  />
+                </Pressable>
                 <Pressable
                   style={styles.avatarEditButton}
                   onPress={() => pickProfileImage('avatar')}
@@ -408,6 +472,7 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
               </View>
               <Text style={styles.previewName} numberOfLines={1}>{name.trim() || 'Nome do perfil'}</Text>
               <Text style={styles.previewHandle} numberOfLines={1}>{normalizeHandle(handle) || '@usuario'}</Text>
+              <Text style={styles.previewHint}>Toque no banner ou avatar para ajustar o enquadramento.</Text>
             </View>
           </View>
 
@@ -505,6 +570,14 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ProfileMediaEditorModal
+        visible={!!mediaEditorState}
+        kind={mediaEditorState?.kind ?? null}
+        media={mediaEditorState?.media ?? null}
+        onCancel={closeMediaEditor}
+        onConfirm={applyMediaTransform}
+      />
     </SafeAreaView>
   );
 }
@@ -572,10 +645,13 @@ const styles = StyleSheet.create({
     height: 190,
     overflow: 'hidden',
   },
-  bannerPreview: {
+  previewMediaTouch: {
     width: '100%',
     height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  bannerPreview: {},
   previewShade: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -608,11 +684,7 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: '#0E0E12',
   },
-  avatarPreview: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-  },
+  avatarPreview: {},
   avatarEditButton: {
     position: 'absolute',
     right: -2,
@@ -645,6 +717,15 @@ const styles = StyleSheet.create({
     color: '#9EA5D4',
     fontSize: 12,
     fontWeight: '700',
+  },
+  previewHint: {
+    marginTop: 10,
+    maxWidth: '86%',
+    color: '#7E86B7',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   section: {
     marginTop: 22,

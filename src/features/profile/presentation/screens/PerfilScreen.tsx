@@ -36,6 +36,7 @@ import {
   type SocialLinkId,
   useProfileStore,
 } from '@/features/profile/presentation/store/useProfileStore';
+import { ProfileMediaViewport } from '@/features/profile/presentation/components/ProfileMediaViewport';
 import { formatCount } from '@/shared/utils/formatCount';
 
 const { width } = Dimensions.get('window');
@@ -564,12 +565,11 @@ export default function Perfil() {
   const renderHeader = useCallback(() => (
     <View style={styles.header}>
       <View style={styles.bannerWrap}>
-        <Image
-          source={{ uri: profileBanner }}
+        <ProfileMediaViewport
+          media={profileBanner}
+          viewportWidth={width}
+          viewportHeight={214}
           style={styles.bannerImage}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={profileBanner}
           accessibilityLabel="Banner do perfil"
         />
         <LinearGradient
@@ -598,12 +598,12 @@ export default function Perfil() {
         <View
           style={styles.avatarButton}
         >
-          <Image
-            source={{ uri: profileAvatar }}
+          <ProfileMediaViewport
+            media={profileAvatar}
+            viewportWidth={96}
+            viewportHeight={96}
+            borderRadius={48}
             style={styles.avatar}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            recyclingKey={profileAvatar}
             accessibilityLabel="Foto de perfil"
           />
           <Pressable
