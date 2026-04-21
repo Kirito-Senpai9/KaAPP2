@@ -15,10 +15,20 @@ import {
   BottomSheetModal,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
+import { Directions, Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { runOnJS } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { RootStackParamList } from '@/app/navigation/types';
+import {
+  PROFILE_GAMER_STATS,
+  type SocialLinkId,
+  useProfileStore,
+} from '@/features/profile/presentation/store/useProfileStore';
 import { formatCount } from '@/shared/utils/formatCount';
 
 const { width } = Dimensions.get('window');
@@ -33,13 +43,6 @@ type UserStatusId = 'online' | 'away' | 'dnd' | 'invisible';
 type AccountMetric = {
   label: string;
   value: string;
-};
-
-type GamerStat = {
-  label: string;
-  value: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  color: string;
 };
 
 type VideoTab = {
@@ -62,17 +65,11 @@ type UserStatusOption = {
   color: string;
 };
 
-const PROFILE = {
-  name: 'Jujutsu Supremacy',
-  handle: '@jujutsu_supremacy',
-  avatar:
-    'https://images.unsplash.com/photo-1511367461989-f85a21fda167?w=500&q=80&auto=format&fit=crop',
-  banner:
-    'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1600&q=80&auto=format&fit=crop',
-  bio:
-    'Canal gamer de animes, ranked e clipes de boss fight. Lives de sexta, builds testadas e muita zoeira controlada.',
-  linkLabel: 'twitch.tv/jujutsu_supremacy',
-  linkUrl: 'https://www.twitch.tv/jujutsu_supremacy',
+type SocialLinkOption = {
+  id: SocialLinkId;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  color: string;
 };
 
 const ACCOUNT_METRICS: AccountMetric[] = [
@@ -80,13 +77,6 @@ const ACCOUNT_METRICS: AccountMetric[] = [
   { label: 'Seguindo', value: '31' },
   { label: 'Seguidores', value: '31,3 mil' },
   { label: 'Curtidas', value: '403,9 mil' },
-];
-
-const GAMER_STATS: GamerStat[] = [
-  { label: 'Jogos', value: '210', icon: 'game-controller-outline', color: '#76A9FF' },
-  { label: 'Finalizados', value: '17', icon: 'flag-outline', color: '#B987FF' },
-  { label: 'Completados', value: '11', icon: 'checkmark-outline', color: '#83F2A1' },
-  { label: 'Tempo', value: '2176h', icon: 'time-outline', color: '#C07BFF' },
 ];
 
 const VIDEO_TABS: VideoTab[] = [
@@ -97,11 +87,21 @@ const VIDEO_TABS: VideoTab[] = [
   { id: 'liked', accessibilityLabel: 'Videos curtidos', icon: 'heart-outline' },
 ];
 
+const VIDEO_TAB_IDS = VIDEO_TABS.map((tab) => tab.id);
+
 const USER_STATUS_OPTIONS: UserStatusOption[] = [
   { id: 'online', label: 'Disponivel', color: '#35C46B' },
   { id: 'away', label: 'Ausente', color: '#FFC857' },
   { id: 'dnd', label: 'Nao perturbar', color: '#F04F63' },
   { id: 'invisible', label: 'Invisivel', color: '#8C94A8' },
+];
+
+const SOCIAL_LINK_OPTIONS: SocialLinkOption[] = [
+  { id: 'tiktok', label: 'TikTok', icon: 'logo-tiktok', color: '#FFFFFF' },
+  { id: 'youtube', label: 'YouTube', icon: 'logo-youtube', color: '#FF4D5E' },
+  { id: 'twitch', label: 'Twitch', icon: 'logo-twitch', color: '#B987FF' },
+  { id: 'instagram', label: 'Instagram', icon: 'logo-instagram', color: '#FF7AC8' },
+  { id: 'x', label: 'X', icon: 'logo-x', color: '#FFFFFF' },
 ];
 
 const PROFILE_VIDEOS: ProfileVideo[] = [
@@ -206,39 +206,66 @@ const PROFILE_VIDEOS: ProfileVideo[] = [
   },
 ];
 
-const isSafeHttpUrl = (url: string) => (
-  url.startsWith('https://') || url.startsWith('http://')
-);
+const isSafeHttpUrl = (url: string) => /^https?:\/\//i.test(url);
 
-const ProfileVideoTile = memo(function ProfileVideoTile({ item }: { item: ProfileVideo }) {
+const ProfileVideoTile = memo(function ProfileVideoTile({
+  item,
+  onSwipeTab,
+}: {
+  item: ProfileVideo;
+  onSwipeTab: (direction: -1 | 1) => void;
+}) {
+  const tileSwipeGesture = useMemo(() => Gesture.Exclusive(
+    Gesture.Fling()
+      .direction(Directions.LEFT)
+      .onStart(() => {
+        runOnJS(onSwipeTab)(1);
+      }),
+    Gesture.Fling()
+      .direction(Directions.RIGHT)
+      .onStart(() => {
+        runOnJS(onSwipeTab)(-1);
+      })
+  ), [onSwipeTab]);
+
   return (
-    <View style={styles.tile}>
-      <Image
-        source={{ uri: item.thumbnail }}
-        style={styles.tileImage}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        recyclingKey={item.thumbnail}
-        accessibilityLabel="Miniatura de video do perfil"
-      />
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.68)']}
-        style={styles.tileGradient}
-      />
-      <View style={styles.tileMeta}>
-        <Ionicons name={item.isPrivate ? 'lock-closed' : 'play'} size={13} color="#FFFFFF" />
-        <Text style={styles.tileViews}>{item.isPrivate ? 'Privado' : formatCount(item.views, 'lower')}</Text>
+    <GestureDetector gesture={tileSwipeGesture}>
+      <View style={styles.tile}>
+        <Image
+          source={{ uri: item.thumbnail }}
+          style={styles.tileImage}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={item.thumbnail}
+          accessibilityLabel="Miniatura de video do perfil"
+        />
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.68)']}
+          style={styles.tileGradient}
+        />
+        <View style={styles.tileMeta}>
+          <Ionicons name={item.isPrivate ? 'lock-closed' : 'play'} size={13} color="#FFFFFF" />
+          <Text style={styles.tileViews}>{item.isPrivate ? 'Privado' : formatCount(item.views, 'lower')}</Text>
+        </View>
       </View>
-    </View>
+    </GestureDetector>
   );
 });
 
 export default function Perfil() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const statusSheetRef = useRef<BottomSheetModal>(null);
   const [activeTab, setActiveTab] = useState<VideoTabId>('posts');
   const [selectedStatus, setSelectedStatus] = useState<UserStatusId>('online');
   const statusSnapPoints = useMemo(() => ['62%'], []);
+  const profileName = useProfileStore((state) => state.name);
+  const profileHandle = useProfileStore((state) => state.handle);
+  const profileAvatar = useProfileStore((state) => state.avatar);
+  const profileBanner = useProfileStore((state) => state.banner);
+  const profileBio = useProfileStore((state) => state.bio);
+  const profileSocialLinks = useProfileStore((state) => state.socialLinks);
+  const gamerStatOrder = useProfileStore((state) => state.gamerStatOrder);
 
   const filteredVideos = useMemo(
     () => PROFILE_VIDEOS.filter((video) => video.tab === activeTab),
@@ -249,6 +276,40 @@ export default function Perfil() {
     () => USER_STATUS_OPTIONS.find((status) => status.id === selectedStatus) ?? USER_STATUS_OPTIONS[0],
     [selectedStatus]
   );
+
+  const gamerStats = useMemo(
+    () => gamerStatOrder.map((statId) => PROFILE_GAMER_STATS[statId]),
+    [gamerStatOrder]
+  );
+
+  const visibleSocialLinks = useMemo(
+    () => SOCIAL_LINK_OPTIONS
+      .map((option) => ({ ...option, url: profileSocialLinks[option.id].trim() }))
+      .filter((option) => option.url.length > 0),
+    [profileSocialLinks]
+  );
+
+  const moveVideoTab = useCallback((direction: -1 | 1) => {
+    setActiveTab((currentTab) => {
+      const currentIndex = VIDEO_TAB_IDS.indexOf(currentTab);
+      const nextIndex = Math.min(Math.max(currentIndex + direction, 0), VIDEO_TAB_IDS.length - 1);
+
+      return VIDEO_TAB_IDS[nextIndex] ?? currentTab;
+    });
+  }, []);
+
+  const swipeVideoTabsGesture = useMemo(() => Gesture.Exclusive(
+    Gesture.Fling()
+      .direction(Directions.LEFT)
+      .onStart(() => {
+        runOnJS(moveVideoTab)(1);
+      }),
+    Gesture.Fling()
+      .direction(Directions.RIGHT)
+      .onStart(() => {
+        runOnJS(moveVideoTab)(-1);
+      })
+  ), [moveVideoTab]);
 
   const openStatusSheet = useCallback(() => {
     statusSheetRef.current?.present();
@@ -267,6 +328,10 @@ export default function Perfil() {
     closeStatusSheet();
     Alert.alert('Status personalizado', 'Essa opcao sera configurada na tela de edicao do perfil.');
   }, [closeStatusSheet]);
+
+  const openEditProfile = useCallback(() => {
+    navigation.navigate('EditarPerfil');
+  }, [navigation]);
 
   const renderStatusBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -329,21 +394,21 @@ export default function Perfil() {
     </Pressable>
   ), [openCustomStatus]);
 
-  const openExternalProfileLink = useCallback(async () => {
-    if (!isSafeHttpUrl(PROFILE.linkUrl)) {
+  const openExternalProfileLink = useCallback(async (url: string) => {
+    if (!isSafeHttpUrl(url)) {
       Alert.alert('Link indisponivel', 'Este link externo nao pode ser aberto.');
       return;
     }
 
     try {
-      const supported = await Linking.canOpenURL(PROFILE.linkUrl);
+      const supported = await Linking.canOpenURL(url);
 
       if (!supported) {
         Alert.alert('Link indisponivel', 'Nao foi possivel abrir este link agora.');
         return;
       }
 
-      await Linking.openURL(PROFILE.linkUrl);
+      await Linking.openURL(url);
     } catch (error) {
       console.warn('[PerfilScreen] Falha ao abrir link externo', error);
       Alert.alert('Link indisponivel', 'Tente abrir novamente em instantes.');
@@ -351,19 +416,19 @@ export default function Perfil() {
   }, []);
 
   const renderVideoTile = useCallback(
-    ({ item }: { item: ProfileVideo }) => <ProfileVideoTile item={item} />,
-    []
+    ({ item }: { item: ProfileVideo }) => <ProfileVideoTile item={item} onSwipeTab={moveVideoTab} />,
+    [moveVideoTab]
   );
 
   const renderHeader = useCallback(() => (
     <View style={styles.header}>
       <View style={styles.bannerWrap}>
         <Image
-          source={{ uri: PROFILE.banner }}
+          source={{ uri: profileBanner }}
           style={styles.bannerImage}
           contentFit="cover"
           cachePolicy="memory-disk"
-          recyclingKey={PROFILE.banner}
+          recyclingKey={profileBanner}
           accessibilityLabel="Banner do perfil"
         />
         <LinearGradient
@@ -393,11 +458,11 @@ export default function Perfil() {
           style={styles.avatarButton}
         >
           <Image
-            source={{ uri: PROFILE.avatar }}
+            source={{ uri: profileAvatar }}
             style={styles.avatar}
             contentFit="cover"
             cachePolicy="memory-disk"
-            recyclingKey={PROFILE.avatar}
+            recyclingKey={profileAvatar}
             accessibilityLabel="Foto de perfil"
           />
           <Pressable
@@ -408,8 +473,19 @@ export default function Perfil() {
           />
         </View>
 
-        <Text style={styles.profileName} numberOfLines={1}>{PROFILE.name}</Text>
-        <Text style={styles.profileHandle} numberOfLines={1}>{PROFILE.handle}</Text>
+        <View style={styles.profileNameRow}>
+          <View style={styles.editProfileSpacer} />
+          <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
+          <Pressable
+            style={styles.editProfileButton}
+            onPress={openEditProfile}
+            accessibilityRole="button"
+            accessibilityLabel="Editar perfil"
+          >
+            <Ionicons name="create-outline" size={15} color="#DDE1FF" />
+          </Pressable>
+        </View>
+        <Text style={styles.profileHandle} numberOfLines={1}>{profileHandle}</Text>
 
         <View style={styles.accountMetrics}>
           {ACCOUNT_METRICS.map((metric) => (
@@ -420,22 +496,28 @@ export default function Perfil() {
           ))}
         </View>
 
-        <Text style={styles.bio}>{PROFILE.bio}</Text>
+        <Text style={styles.bio}>{profileBio}</Text>
 
-        <Pressable
-          style={styles.bioLink}
-          onPress={openExternalProfileLink}
-          accessibilityRole="link"
-          accessibilityLabel={`Abrir link externo ${PROFILE.linkLabel}`}
-        >
-          <Ionicons name="link-outline" size={15} color="#AEB7FF" />
-          <Text style={styles.bioLinkText} numberOfLines={1}>{PROFILE.linkLabel}</Text>
-        </Pressable>
+        {visibleSocialLinks.length > 0 && (
+          <View style={styles.socialLinksRow}>
+            {visibleSocialLinks.map((link) => (
+              <Pressable
+                key={link.id}
+                style={styles.socialLinkButton}
+                onPress={() => openExternalProfileLink(link.url)}
+                accessibilityRole="link"
+                accessibilityLabel={`Abrir ${link.label}`}
+              >
+                <Ionicons name={link.icon} size={18} color={link.color} />
+              </Pressable>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.gamerStats}>
-        {GAMER_STATS.map((stat) => (
-          <View style={styles.gamerStat} key={stat.label}>
+        {gamerStats.map((stat) => (
+          <View style={styles.gamerStat} key={stat.id}>
             <Ionicons name={stat.icon} size={17} color={stat.color} />
             <Text style={styles.gamerStatValue} numberOfLines={1}>{stat.value}</Text>
             <Text style={styles.gamerStatLabel} numberOfLines={1}>{stat.label}</Text>
@@ -443,31 +525,48 @@ export default function Perfil() {
         ))}
       </View>
 
-      <View style={styles.videoTabs}>
-        {VIDEO_TABS.map((tab) => {
-          const isActive = tab.id === activeTab;
+      <GestureDetector gesture={swipeVideoTabsGesture}>
+        <View style={styles.videoTabs}>
+          {VIDEO_TABS.map((tab) => {
+            const isActive = tab.id === activeTab;
 
-          return (
-            <Pressable
-              key={tab.id}
-              style={styles.videoTabButton}
-              onPress={() => setActiveTab(tab.id)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isActive }}
-              accessibilityLabel={tab.accessibilityLabel}
-            >
-              <Ionicons
-                name={tab.icon}
-                size={23}
-                color={isActive ? '#FFFFFF' : 'rgba(220,224,255,0.62)'}
-              />
-              <View style={[styles.videoTabIndicator, isActive && styles.videoTabIndicatorActive]} />
-            </Pressable>
-          );
-        })}
-      </View>
+            return (
+              <Pressable
+                key={tab.id}
+                style={styles.videoTabButton}
+                onPress={() => setActiveTab(tab.id)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={tab.accessibilityLabel}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={23}
+                  color={isActive ? '#FFFFFF' : 'rgba(220,224,255,0.62)'}
+                />
+                <View style={[styles.videoTabIndicator, isActive && styles.videoTabIndicatorActive]} />
+              </Pressable>
+            );
+          })}
+        </View>
+      </GestureDetector>
     </View>
-  ), [activeTab, insets.top, openExternalProfileLink, openStatusSheet, selectedStatusOption]);
+  ), [
+    activeTab,
+    gamerStats,
+    insets.top,
+    openEditProfile,
+    openExternalProfileLink,
+    openStatusSheet,
+    profileAvatar,
+    profileBanner,
+    profileBio,
+    profileHandle,
+    profileName,
+    selectedStatusOption,
+    swipeVideoTabsGesture,
+    visibleSocialLinks,
+  ]);
 
   const listEmptyComponent = useMemo(() => (
     <View style={styles.emptyState}>
@@ -475,6 +574,12 @@ export default function Perfil() {
       <Text style={styles.emptyText}>Nada por aqui ainda.</Text>
     </View>
   ), []);
+
+  const swipeListEmptyComponent = useMemo(() => (
+    <GestureDetector gesture={swipeVideoTabsGesture}>
+      {listEmptyComponent}
+    </GestureDetector>
+  ), [listEmptyComponent, swipeVideoTabsGesture]);
 
   return (
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
@@ -492,7 +597,7 @@ export default function Perfil() {
         getItemType={(item) => item.tab}
         numColumns={3}
         ListHeaderComponent={renderHeader}
-        ListEmptyComponent={listEmptyComponent}
+        ListEmptyComponent={swipeListEmptyComponent}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingBottom: TAB_BAR_HEIGHT + insets.bottom,
@@ -594,13 +699,37 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#0E0E12',
   },
-  profileName: {
+  profileNameRow: {
     marginTop: 6,
     maxWidth: width - 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  editProfileSpacer: {
+    width: 28,
+    height: 28,
+    opacity: 0,
+  },
+  profileName: {
+    flexShrink: 1,
+    maxWidth: width - 120,
     color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: 0,
+    textAlign: 'center',
+  },
+  editProfileButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(221,225,255,0.1)',
   },
   profileHandle: {
     marginTop: 3,
@@ -639,20 +768,19 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
-  bioLink: {
-    marginTop: 8,
-    maxWidth: width - 48,
-    minHeight: 24,
-    paddingHorizontal: 2,
+  socialLinksRow: {
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 14,
   },
-  bioLinkText: {
-    flexShrink: 1,
-    color: '#DDE1FF',
-    fontSize: 13,
-    fontWeight: '700',
+  socialLinkButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gamerStats: {
     marginTop: 16,

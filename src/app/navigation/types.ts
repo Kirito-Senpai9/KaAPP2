@@ -32,6 +32,7 @@ export type RootStackParamList = {
   CriarPostagem: undefined;
   CriarShorts: undefined;
   LiveSetup: undefined;
+  EditarPerfil: undefined;
 };
 
 export type KachanTabParamList = {

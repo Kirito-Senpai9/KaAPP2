@@ -8,6 +8,7 @@ import { CriarPostagemScreen, LiveSetupScreen } from '@/features/create';
 import { CriarShortsScreen } from '@/features/shorts';
 import { CriarStoriesScreen, StoryViewerScreen } from '@/features/stories';
 import { TelaLoginScreen } from '@/features/auth';
+import { EditarPerfilScreen } from '@/features/profile';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -34,6 +35,7 @@ export default function RootNavigator() {
         <Stack.Screen name="CriarPostagem" component={CriarPostagemScreen} />
         <Stack.Screen name="CriarShorts" component={CriarShortsScreen} />
         <Stack.Screen name="LiveSetup" component={LiveSetupScreen} />
+        <Stack.Screen name="EditarPerfil" component={EditarPerfilScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
