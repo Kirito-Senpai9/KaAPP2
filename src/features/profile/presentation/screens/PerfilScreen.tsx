@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -15,13 +15,20 @@ import {
   BottomSheetModal,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
-import { Directions, Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { runOnJS } from 'react-native-reanimated';
+import Reanimated, {
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '@/app/navigation/types';
 import {
@@ -35,6 +42,15 @@ const { width } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 112;
 const GRID_GAP = 2;
 const TILE_SIZE = Math.floor((width - GRID_GAP * 2) / 3);
+const VIDEO_TAB_WIDTH = width / 5;
+const VIDEO_TAB_INDICATOR_WIDTH = 32;
+const VIDEO_TAB_INDICATOR_OFFSET = (VIDEO_TAB_WIDTH - VIDEO_TAB_INDICATOR_WIDTH) / 2;
+const SWIPE_CLAMP_DISTANCE = 72;
+const SWIPE_TRIGGER_DISTANCE = 52;
+const SWIPE_TRIGGER_VELOCITY = 520;
+const SWIPE_DRAG_FACTOR = 0.46;
+const SWIPE_EXIT_DISTANCE = 56;
+const SWIPE_ENTRY_DISTANCE = 28;
 
 type VideoTabId = 'posts' | 'private' | 'reposts' | 'favorites' | 'liked';
 
@@ -57,6 +73,11 @@ type ProfileVideo = {
   thumbnail: string;
   views: number;
   isPrivate?: boolean;
+};
+
+type ProfileVideoRowData = {
+  id: string;
+  items: ProfileVideo[];
 };
 
 type UserStatusOption = {
@@ -210,45 +231,51 @@ const isSafeHttpUrl = (url: string) => /^https?:\/\//i.test(url);
 
 const ProfileVideoTile = memo(function ProfileVideoTile({
   item,
-  onSwipeTab,
 }: {
   item: ProfileVideo;
-  onSwipeTab: (direction: -1 | 1) => void;
 }) {
-  const tileSwipeGesture = useMemo(() => Gesture.Exclusive(
-    Gesture.Fling()
-      .direction(Directions.LEFT)
-      .onStart(() => {
-        runOnJS(onSwipeTab)(1);
-      }),
-    Gesture.Fling()
-      .direction(Directions.RIGHT)
-      .onStart(() => {
-        runOnJS(onSwipeTab)(-1);
-      })
-  ), [onSwipeTab]);
+  return (
+    <View style={styles.tile}>
+      <Image
+        source={{ uri: item.thumbnail }}
+        style={styles.tileImage}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={item.thumbnail}
+        accessibilityLabel="Miniatura de video do perfil"
+      />
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.68)']}
+        style={styles.tileGradient}
+      />
+      <View style={styles.tileMeta}>
+        <Ionicons name={item.isPrivate ? 'lock-closed' : 'play'} size={13} color="#FFFFFF" />
+        <Text style={styles.tileViews}>{item.isPrivate ? 'Privado' : formatCount(item.views, 'lower')}</Text>
+      </View>
+    </View>
+  );
+});
+
+const ProfileVideoRow = memo(function ProfileVideoRow({
+  row,
+  animatedStyle,
+}: {
+  row: ProfileVideoRowData;
+  animatedStyle: React.ComponentProps<typeof Reanimated.View>['style'];
+}) {
+  const spacerCount = Math.max(0, 3 - row.items.length);
 
   return (
-    <GestureDetector gesture={tileSwipeGesture}>
-      <View style={styles.tile}>
-        <Image
-          source={{ uri: item.thumbnail }}
-          style={styles.tileImage}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={item.thumbnail}
-          accessibilityLabel="Miniatura de video do perfil"
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.68)']}
-          style={styles.tileGradient}
-        />
-        <View style={styles.tileMeta}>
-          <Ionicons name={item.isPrivate ? 'lock-closed' : 'play'} size={13} color="#FFFFFF" />
-          <Text style={styles.tileViews}>{item.isPrivate ? 'Privado' : formatCount(item.views, 'lower')}</Text>
-        </View>
+    <Reanimated.View style={[styles.videoRow, animatedStyle]}>
+      <View style={styles.videoRowInner}>
+        {row.items.map((item) => (
+          <ProfileVideoTile key={item.id} item={item} />
+        ))}
+        {Array.from({ length: spacerCount }, (_, index) => (
+          <View key={`${row.id}-spacer-${index}`} style={styles.tileSpacer} />
+        ))}
       </View>
-    </GestureDetector>
+    </Reanimated.View>
   );
 });
 
@@ -259,6 +286,10 @@ export default function Perfil() {
   const [activeTab, setActiveTab] = useState<VideoTabId>('posts');
   const [selectedStatus, setSelectedStatus] = useState<UserStatusId>('online');
   const statusSnapPoints = useMemo(() => ['62%'], []);
+  const contentTranslateX = useSharedValue(0);
+  const contentOpacity = useSharedValue(1);
+  const isTabTransitioning = useSharedValue(false);
+  const tabIndicatorX = useSharedValue(VIDEO_TAB_INDICATOR_OFFSET);
   const profileName = useProfileStore((state) => state.name);
   const profileHandle = useProfileStore((state) => state.handle);
   const profileAvatar = useProfileStore((state) => state.avatar);
@@ -271,6 +302,20 @@ export default function Perfil() {
     () => PROFILE_VIDEOS.filter((video) => video.tab === activeTab),
     [activeTab]
   );
+  const videoRows = useMemo<ProfileVideoRowData[]>(() => {
+    const rows: ProfileVideoRowData[] = [];
+
+    for (let index = 0; index < filteredVideos.length; index += 3) {
+      const items = filteredVideos.slice(index, index + 3);
+      rows.push({
+        id: items.map((item) => item.id).join(':'),
+        items,
+      });
+    }
+
+    return rows;
+  }, [filteredVideos]);
+  const activeTabIndex = useMemo(() => VIDEO_TAB_IDS.indexOf(activeTab), [activeTab]);
 
   const selectedStatusOption = useMemo(
     () => USER_STATUS_OPTIONS.find((status) => status.id === selectedStatus) ?? USER_STATUS_OPTIONS[0],
@@ -289,27 +334,116 @@ export default function Perfil() {
     [profileSocialLinks]
   );
 
-  const moveVideoTab = useCallback((direction: -1 | 1) => {
-    setActiveTab((currentTab) => {
-      const currentIndex = VIDEO_TAB_IDS.indexOf(currentTab);
-      const nextIndex = Math.min(Math.max(currentIndex + direction, 0), VIDEO_TAB_IDS.length - 1);
+  const animateTabTransition = useCallback((nextTab: VideoTabId) => {
+    if (nextTab === activeTab || isTabTransitioning.value) {
+      return;
+    }
 
-      return VIDEO_TAB_IDS[nextIndex] ?? currentTab;
+    const nextTabIndex = VIDEO_TAB_IDS.indexOf(nextTab);
+    const direction: -1 | 1 = nextTabIndex > activeTabIndex ? 1 : -1;
+    const exitOffset = direction > 0 ? -SWIPE_EXIT_DISTANCE : SWIPE_EXIT_DISTANCE;
+    const entryOffset = direction > 0 ? SWIPE_ENTRY_DISTANCE : -SWIPE_ENTRY_DISTANCE;
+
+    isTabTransitioning.value = true;
+    contentOpacity.value = withTiming(0.9, { duration: 110 });
+    contentTranslateX.value = withTiming(exitOffset, { duration: 140 }, (finished) => {
+      if (!finished) {
+        isTabTransitioning.value = false;
+        return;
+      }
+
+      runOnJS(setActiveTab)(nextTab);
+      contentTranslateX.value = entryOffset;
+      contentOpacity.value = 0.88;
+      contentTranslateX.value = withSpring(0, {
+        damping: 18,
+        stiffness: 220,
+        mass: 0.86,
+      }, (settled) => {
+        if (settled) {
+          isTabTransitioning.value = false;
+        }
+      });
+      contentOpacity.value = withTiming(1, { duration: 210 });
     });
-  }, []);
+  }, [activeTab, activeTabIndex, contentOpacity, contentTranslateX, isTabTransitioning]);
 
-  const swipeVideoTabsGesture = useMemo(() => Gesture.Exclusive(
-    Gesture.Fling()
-      .direction(Directions.LEFT)
-      .onStart(() => {
-        runOnJS(moveVideoTab)(1);
-      }),
-    Gesture.Fling()
-      .direction(Directions.RIGHT)
-      .onStart(() => {
-        runOnJS(moveVideoTab)(-1);
-      })
-  ), [moveVideoTab]);
+  const handleTabPress = useCallback((tabId: VideoTabId) => {
+    animateTabTransition(tabId);
+  }, [animateTabTransition]);
+
+  const animatedContentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+    transform: [
+      { translateX: contentTranslateX.value },
+      {
+        scale: interpolate(
+          Math.abs(contentTranslateX.value),
+          [0, SWIPE_CLAMP_DISTANCE * SWIPE_DRAG_FACTOR],
+          [1, 0.992]
+        ),
+      },
+    ],
+  }));
+
+  const animatedTabIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tabIndicatorX.value }],
+  }));
+
+  useEffect(() => {
+    tabIndicatorX.value = withSpring(
+      activeTabIndex * VIDEO_TAB_WIDTH + VIDEO_TAB_INDICATOR_OFFSET,
+      {
+        damping: 18,
+        stiffness: 220,
+        mass: 0.84,
+      }
+    );
+  }, [activeTabIndex, tabIndicatorX]);
+
+  const swipeVideoTabsGesture = useMemo(() => Gesture.Pan()
+    .activeOffsetX([-12, 12])
+    .failOffsetY([-18, 18])
+    .onUpdate((event) => {
+      if (isTabTransitioning.value) {
+        return;
+      }
+
+      const clampedX = Math.max(Math.min(event.translationX, SWIPE_CLAMP_DISTANCE), -SWIPE_CLAMP_DISTANCE);
+      contentTranslateX.value = clampedX * SWIPE_DRAG_FACTOR;
+      contentOpacity.value = interpolate(
+        Math.abs(clampedX),
+        [0, SWIPE_CLAMP_DISTANCE],
+        [1, 0.92]
+      );
+    })
+    .onEnd((event) => {
+      if (isTabTransitioning.value) {
+        return;
+      }
+
+      const shouldAdvance = event.translationX <= -SWIPE_TRIGGER_DISTANCE || event.velocityX <= -SWIPE_TRIGGER_VELOCITY;
+      const shouldGoBack = event.translationX >= SWIPE_TRIGGER_DISTANCE || event.velocityX >= SWIPE_TRIGGER_VELOCITY;
+      const nextTab = VIDEO_TAB_IDS[activeTabIndex + 1];
+      const previousTab = VIDEO_TAB_IDS[activeTabIndex - 1];
+
+      if (shouldAdvance && nextTab) {
+        runOnJS(animateTabTransition)(nextTab);
+        return;
+      }
+
+      if (shouldGoBack && previousTab) {
+        runOnJS(animateTabTransition)(previousTab);
+        return;
+      }
+
+      contentTranslateX.value = withSpring(0, {
+        damping: 18,
+        stiffness: 230,
+        mass: 0.84,
+      });
+      contentOpacity.value = withTiming(1, { duration: 170 });
+    }), [activeTabIndex, animateTabTransition, contentOpacity, contentTranslateX, isTabTransitioning]);
 
   const openStatusSheet = useCallback(() => {
     statusSheetRef.current?.present();
@@ -415,9 +549,16 @@ export default function Perfil() {
     }
   }, []);
 
-  const renderVideoTile = useCallback(
-    ({ item }: { item: ProfileVideo }) => <ProfileVideoTile item={item} onSwipeTab={moveVideoTab} />,
-    [moveVideoTab]
+  const renderVideoRow = useCallback(
+    ({ item }: { item: ProfileVideoRowData }) => (
+      <ProfileVideoRow row={item} animatedStyle={animatedContentStyle} />
+    ),
+    [animatedContentStyle]
+  );
+
+  const getVideoRowType = useCallback(
+    () => 'video-row',
+    []
   );
 
   const renderHeader = useCallback(() => (
@@ -474,7 +615,6 @@ export default function Perfil() {
         </View>
 
         <View style={styles.profileNameRow}>
-          <View style={styles.editProfileSpacer} />
           <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
           <Pressable
             style={styles.editProfileButton}
@@ -482,7 +622,7 @@ export default function Perfil() {
             accessibilityRole="button"
             accessibilityLabel="Editar perfil"
           >
-            <Ionicons name="create-outline" size={15} color="#DDE1FF" />
+            <Ionicons name="create-outline" size={14} color="rgba(221,225,255,0.9)" />
           </Pressable>
         </View>
         <Text style={styles.profileHandle} numberOfLines={1}>{profileHandle}</Text>
@@ -525,35 +665,40 @@ export default function Perfil() {
         ))}
       </View>
 
-      <GestureDetector gesture={swipeVideoTabsGesture}>
-        <View style={styles.videoTabs}>
-          {VIDEO_TABS.map((tab) => {
-            const isActive = tab.id === activeTab;
+      <View style={styles.videoTabs}>
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.videoTabIndicatorTrack, animatedTabIndicatorStyle]}
+        >
+          <View style={styles.videoTabIndicator} />
+        </Reanimated.View>
+        {VIDEO_TABS.map((tab) => {
+          const isActive = tab.id === activeTab;
 
-            return (
-              <Pressable
-                key={tab.id}
-                style={styles.videoTabButton}
-                onPress={() => setActiveTab(tab.id)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={tab.accessibilityLabel}
-              >
-                <Ionicons
-                  name={tab.icon}
-                  size={23}
-                  color={isActive ? '#FFFFFF' : 'rgba(220,224,255,0.62)'}
-                />
-                <View style={[styles.videoTabIndicator, isActive && styles.videoTabIndicatorActive]} />
-              </Pressable>
-            );
-          })}
-        </View>
-      </GestureDetector>
+          return (
+            <Pressable
+              key={tab.id}
+              style={styles.videoTabButton}
+              onPress={() => handleTabPress(tab.id)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={tab.accessibilityLabel}
+            >
+              <Ionicons
+                name={tab.icon}
+                size={23}
+                color={isActive ? '#FFFFFF' : 'rgba(220,224,255,0.62)'}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   ), [
     activeTab,
+    animatedTabIndicatorStyle,
     gamerStats,
+    handleTabPress,
     insets.top,
     openEditProfile,
     openExternalProfileLink,
@@ -564,22 +709,15 @@ export default function Perfil() {
     profileHandle,
     profileName,
     selectedStatusOption,
-    swipeVideoTabsGesture,
     visibleSocialLinks,
   ]);
 
   const listEmptyComponent = useMemo(() => (
-    <View style={styles.emptyState}>
+    <Reanimated.View style={[styles.emptyState, animatedContentStyle]}>
       <MaterialCommunityIcons name="filmstrip-off" size={34} color="#AEB7FF" />
       <Text style={styles.emptyText}>Nada por aqui ainda.</Text>
-    </View>
-  ), []);
-
-  const swipeListEmptyComponent = useMemo(() => (
-    <GestureDetector gesture={swipeVideoTabsGesture}>
-      {listEmptyComponent}
-    </GestureDetector>
-  ), [listEmptyComponent, swipeVideoTabsGesture]);
+    </Reanimated.View>
+  ), [animatedContentStyle]);
 
   return (
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
@@ -590,19 +728,20 @@ export default function Perfil() {
         style={StyleSheet.absoluteFill}
       />
 
-      <FlashList
-        data={filteredVideos}
-        renderItem={renderVideoTile}
-        keyExtractor={(item) => item.id}
-        getItemType={(item) => item.tab}
-        numColumns={3}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={swipeListEmptyComponent}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingBottom: TAB_BAR_HEIGHT + insets.bottom,
-        }}
-      />
+      <GestureDetector gesture={swipeVideoTabsGesture}>
+        <FlashList
+          data={videoRows}
+          renderItem={renderVideoRow}
+          keyExtractor={(item) => item.id}
+          getItemType={getVideoRowType}
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={listEmptyComponent}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingBottom: TAB_BAR_HEIGHT + insets.bottom,
+          }}
+        />
+      </GestureDetector>
 
       <BottomSheetModal
         ref={statusSheetRef}
@@ -701,20 +840,15 @@ const styles = StyleSheet.create({
   },
   profileNameRow: {
     marginTop: 6,
-    maxWidth: width - 48,
-    flexDirection: 'row',
+    width: '100%',
+    maxWidth: width - 36,
+    minHeight: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-  },
-  editProfileSpacer: {
-    width: 28,
-    height: 28,
-    opacity: 0,
+    paddingHorizontal: 34,
   },
   profileName: {
-    flexShrink: 1,
-    maxWidth: width - 120,
+    width: '100%',
     color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '800',
@@ -722,14 +856,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   editProfileButton: {
+    position: 'absolute',
+    right: 0,
     width: 28,
     height: 28,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.035)',
+    backgroundColor: 'rgba(255,255,255,0.02)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(221,225,255,0.1)',
+    borderColor: 'rgba(221,225,255,0.08)',
   },
   profileHandle: {
     marginTop: 3,
@@ -819,24 +955,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  videoTabIndicator: {
+  videoTabIndicatorTrack: {
     position: 'absolute',
+    left: 0,
     bottom: 0,
-    width: 32,
+    width: VIDEO_TAB_INDICATOR_WIDTH,
+    alignItems: 'center',
+  },
+  videoTabIndicator: {
+    width: VIDEO_TAB_INDICATOR_WIDTH,
     height: 2,
     borderRadius: 1,
-    backgroundColor: 'transparent',
-  },
-  videoTabIndicatorActive: {
     backgroundColor: '#7A72FF',
+  },
+  videoRow: {
+    marginBottom: GRID_GAP,
+  },
+  videoRowInner: {
+    flexDirection: 'row',
+    gap: GRID_GAP,
   },
   tile: {
     width: TILE_SIZE,
     height: Math.floor(TILE_SIZE * 1.34),
-    marginRight: GRID_GAP,
-    marginBottom: GRID_GAP,
     backgroundColor: '#15182F',
     overflow: 'hidden',
+  },
+  tileSpacer: {
+    width: TILE_SIZE,
+    height: Math.floor(TILE_SIZE * 1.34),
   },
   tileImage: {
     width: '100%',
