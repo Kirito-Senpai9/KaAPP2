@@ -1146,7 +1146,7 @@ export default function Home() {
 
       {/* Topo fixo: nome + sino */}
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <Text style={styles.logo}>Kachan!</Text>
+        <Text style={styles.logo}>KaChan!</Text>
         <View style={{ flex: 1 }} />
         <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
           <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
