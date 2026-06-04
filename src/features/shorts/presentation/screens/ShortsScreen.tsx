@@ -1,14 +1,17 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, Pressable,
-  TouchableOpacity, Animated, Easing, Platform,
+  TouchableOpacity, Animated, Easing,
 } from 'react-native';
 import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { RootStackParamList } from '@/app/navigation/types';
 import type { Short } from '@/features/shorts/domain/entities/short';
 import { useShorts } from '@/features/shorts/presentation/hooks/useShorts';
 import { formatCount } from '@/shared/utils/formatCount';
@@ -23,10 +26,27 @@ const DOUBLE_TAP_DELAY_MS = 280;
    Abas topo (Para você / Seguindo) — só texto
 ========================================= */
 function Tabs({
-  mode, onChange,
-}: { mode: 'forYou' | 'following'; onChange: (m: 'forYou' | 'following') => void }) {
+  mode, onChange, topOffset, onOpenLive,
+}: {
+  mode: 'forYou' | 'following';
+  onChange: (m: 'forYou' | 'following') => void;
+  topOffset: number;
+  onOpenLive: () => void;
+}) {
   return (
-    <View style={styles.tabsWrap}>
+    <View style={[styles.tabsWrap, { top: topOffset }]}>
+      <TouchableOpacity
+        onPress={onOpenLive}
+        activeOpacity={0.85}
+        style={styles.liveEntryBtn}
+        accessibilityRole="button"
+        accessibilityLabel="Abrir lives"
+      >
+        <View style={styles.liveEntryIcon}>
+          <Ionicons name="radio-outline" size={20} color="#FFFFFF" />
+          <View style={styles.liveEntryDot} />
+        </View>
+      </TouchableOpacity>
       <View style={styles.tabsOnlyText}>
         <TouchableOpacity onPress={() => onChange('forYou')} activeOpacity={0.9} style={styles.tabTextBtn}>
           <Text style={[styles.tabText, mode === 'forYou' && styles.tabTextActive]}>Para você</Text>
@@ -291,7 +311,10 @@ const ShortCard = memo(function ShortCard({
 ========================================= */
 export default function Shorts() {
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { mode, setMode, data } = useShorts(isFocused);
+  const tabsTopOffset = insets.top;
 
   const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
 
@@ -331,7 +354,12 @@ export default function Shorts() {
   return (
     <View style={styles.root}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
-      <Tabs mode={mode} onChange={setMode} />
+      <Tabs
+        mode={mode}
+        onChange={setMode}
+        topOffset={tabsTopOffset}
+        onOpenLive={() => navigation.navigate('Live')}
+      />
 
       <FlashList
         data={data}
@@ -357,7 +385,6 @@ const styles = StyleSheet.create({
   /* Tabs topo — texto apenas */
   tabsWrap: {
     position: 'absolute',
-    top: Platform.select({ ios: 12, android: 8 }),
     left: 0, right: 0, zIndex: 30,
     alignItems: 'center',
   },
@@ -366,11 +393,34 @@ const styles = StyleSheet.create({
     gap: 18,
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 2,
   },
   tabTextBtn: { paddingHorizontal: 6, paddingVertical: 6 },
   tabText: { color: '#A6ADCE', fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
   tabTextActive: { color: '#FFFFFF' },
+
+  /* Botão de entrada das Lives (esquerda das abas) */
+  liveEntryBtn: {
+    position: 'absolute',
+    left: 6,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 2,
+  },
+  liveEntryIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  liveEntryDot: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#FF5A8F',
+    borderWidth: 1,
+    borderColor: '#0E0E12',
+  },
 
   /* Página do vídeo */
   page: { width, height, justifyContent: 'center', alignItems: 'center' },

@@ -6,6 +6,7 @@ import KachanTabs from '@/app/navigation/KachanTabs';
 import type { RootStackParamList } from '@/app/navigation/types';
 import { CriarPostagemScreen, LiveSetupScreen } from '@/features/create';
 import { CriarShortsScreen } from '@/features/shorts';
+import { LiveScreen } from '@/features/live';
 import { CriarStoriesScreen, StoryViewerScreen } from '@/features/stories';
 import { TelaLoginScreen } from '@/features/auth';
 import { EditarPerfilScreen } from '@/features/profile';
@@ -34,6 +35,7 @@ export default function RootNavigator() {
         <Stack.Screen name="CriarStories" component={CriarStoriesScreen} />
         <Stack.Screen name="CriarPostagem" component={CriarPostagemScreen} />
         <Stack.Screen name="CriarShorts" component={CriarShortsScreen} />
+        <Stack.Screen name="Live" component={LiveScreen} />
         <Stack.Screen name="LiveSetup" component={LiveSetupScreen} />
         <Stack.Screen name="EditarPerfil" component={EditarPerfilScreen} />
       </Stack.Navigator>
