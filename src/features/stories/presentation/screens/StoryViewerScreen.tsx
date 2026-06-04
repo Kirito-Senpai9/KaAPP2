@@ -1042,8 +1042,31 @@ export default function StoryViewer({ route, navigation }: Props) {
         </View>
 
         {canMessageCurrentStory && (
-          <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
-            <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
+          <View style={[styles.bottomArea, { bottom: keyboardOffset }]}>
+            {isInputFocused && (
+              <View style={styles.reactionRow}>
+                <View style={styles.suggestionWrap}>
+                  {REACTIONS.map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      onPress={() => showReactionFx(emoji)}
+                      style={styles.reactionBtn}
+                    >
+                      <Text style={styles.reactionText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <BlurView
+              intensity={45}
+              tint="dark"
+              style={[
+                styles.interactionBar,
+                { paddingBottom: Math.max(insets.bottom, 10) },
+              ]}
+            >
               {emojiInsertFx && (
                 <Animated.View
                   pointerEvents="none"
@@ -1074,15 +1097,18 @@ export default function StoryViewer({ route, navigation }: Props) {
                   <Text style={styles.emojiInsertText}>{emojiInsertFx}</Text>
                 </Animated.View>
               )}
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                placeholder="Enviar mensagem..."
-                placeholderTextColor="#AEB2C8"
-                style={styles.input}
-              />
+
+              <View style={styles.messageField}>
+                <TextInput
+                  value={input}
+                  onChangeText={setInput}
+                  onFocus={() => setIsInputFocused(true)}
+                  onBlur={() => setIsInputFocused(false)}
+                  placeholder="Enviar mensagem..."
+                  placeholderTextColor="#AEB2C8"
+                  style={styles.input}
+                />
+              </View>
               <Reanimated.View style={heartButtonStyle}>
                 <TouchableOpacity
                   style={styles.heartBtn}
@@ -1103,28 +1129,19 @@ export default function StoryViewer({ route, navigation }: Props) {
                 <Ionicons name="paper-plane" size={18} color="#fff" />
               </TouchableOpacity>
             </BlurView>
-
-            {isInputFocused && (
-              <View style={styles.reactionRow}>
-                <View style={styles.suggestionWrap}>
-                  {REACTIONS.map((emoji) => (
-                    <TouchableOpacity
-                      key={emoji}
-                      onPress={() => showReactionFx(emoji)}
-                      style={styles.reactionBtn}
-                    >
-                      <Text style={styles.reactionText}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
           </View>
         )}
 
         {isOwnStory && (
           <View style={styles.bottomArea}>
-            <BlurView intensity={45} tint="dark" style={styles.ownStoryDock}>
+            <BlurView
+              intensity={45}
+              tint="dark"
+              style={[
+                styles.ownStoryDock,
+                { paddingBottom: Math.max(insets.bottom, 10) },
+              ]}
+            >
               <TouchableOpacity
                 onPress={handleOpenViewers}
                 activeOpacity={0.84}
@@ -1364,28 +1381,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 12,
-    paddingHorizontal: 12,
+    bottom: 0,
   },
   interactionBar: {
-    borderRadius: 30,
     minHeight: 56,
-    paddingLeft: 16,
-    paddingRight: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
+    paddingTop: 10,
+    paddingLeft: 12,
+    paddingRight: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.18)',
     backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
   },
   ownStoryDock: {
-    borderRadius: 28,
     minHeight: 74,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
     flexDirection: 'row',
@@ -1393,11 +1408,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
-  input: {
+  messageField: {
     flex: 1,
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    justifyContent: 'center',
+  },
+  input: {
+    width: '100%',
     color: '#FFFFFF',
     minHeight: 44,
-    paddingVertical: 8,
+    paddingVertical: 0,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1489,7 +1514,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 34,
-    marginTop: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
   },
   suggestionWrap: {
     flexDirection: 'row',
