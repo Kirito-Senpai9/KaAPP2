@@ -3,10 +3,13 @@ import React, {
 } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, Pressable,
-  TouchableOpacity, Animated, Easing, TextInput, Platform, Keyboard,
+  TouchableOpacity, Animated, Easing, TextInput, Keyboard,
   type GestureResponderEvent,
 } from 'react-native';
-import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
+import Reanimated, {
+  FadeIn, FadeInDown, FadeOut, LinearTransition,
+  useAnimatedKeyboard, useAnimatedStyle,
+} from 'react-native-reanimated';
 import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -230,7 +233,6 @@ const LiveCard = memo(function LiveCard({
   const [likeCount, setLikeCount] = useState(item.host.likes);
   const [viewers, setViewers] = useState(item.viewers);
   const [input, setInput] = useState('');
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [chat, setChat] = useState<LiveChatItem[]>(item.chat);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [currentInteraction, setCurrentInteraction] = useState<LiveChatItem>(() => genInteraction());
@@ -238,6 +240,12 @@ const LiveCard = memo(function LiveCard({
   const livePulse = useRef(new Animated.Value(0)).current;
   const msgIdRef = useRef(0);
   const heartsRef = useRef<FloatingHeartsHandle>(null);
+
+  // teclado animado (UI thread) — eleva a base suavemente junto com o teclado
+  const keyboard = useAnimatedKeyboard();
+  const bottomAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(keyboard.height.value - insets.bottom, 0) }],
+  }));
 
   // pulsar do ponto "AO VIVO"
   useEffect(() => {
@@ -259,24 +267,6 @@ const LiveCard = memo(function LiveCard({
     }
     player.pause();
   }, [player, playing]);
-
-  // teclado: eleva a barra + chat acima do teclado (padrão do StoryViewer)
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const onShow = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardOffset(Math.max(event.endCoordinates.height - insets.bottom + 10, 0));
-    });
-    const onHide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardOffset(0);
-    });
-
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, [insets.bottom]);
 
   // resync ao reciclar a página (FlashList) para outra live
   useEffect(() => {
@@ -415,7 +405,7 @@ const LiveCard = memo(function LiveCard({
       </View>
 
       {/* ====== BASE: comentários → linha de interação → barra ====== */}
-      <View style={[styles.bottomWrap, { bottom: keyboardOffset, paddingBottom: Math.max(insets.bottom, 10) + 8 }]}>
+      <Reanimated.View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 8 }, bottomAnimStyle]}>
         <ChatList messages={visibleMessages} />
 
         {/* linha única de interação (alterna no mesmo lugar, não sobe) */}
@@ -474,7 +464,7 @@ const LiveCard = memo(function LiveCard({
             </>
           )}
         </View>
-      </View>
+      </Reanimated.View>
 
       {/* corações flutuantes por cima de tudo (isolado) */}
       <FloatingHearts ref={heartsRef} />

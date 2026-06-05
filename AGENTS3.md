@@ -1,143 +1,38 @@
-# AGENTES3.md — Validação Visual e Análise Segura do App Expo Go
 
-## Contexto do projeto
 
-Este projeto é um aplicativo mobile desenvolvido em **React Native com Expo SDK 54**, executado no celular Android físico do desenvolvedor através do **Expo Go**.
+Harness de Validação Mobile para KaAPP2
 
-O ambiente atual possui:
+Objetivo
 
-- VS Code no PC
-- Claude Code como agente de programação
-- Expo Go rodando o aplicativo KaAPP2 no celular Android físico
-- Metro Bundler iniciado com `npx expo start`
-- ADB autorizado e conectado ao celular
-- `agent-device` instalado e funcionando
-- React Native DevTools funcionando ao pressionar `j` no terminal do Expo, após o app estar aberto no Expo Go
+Este projeto utiliza um Harness de validação visual e funcional baseado em:
 
-O objetivo deste arquivo é orientar o agente a usar esses recursos apenas para **validação visual, análise da interface e inspeção do estado do aplicativo em desenvolvimento**, sem alterar nada no smartphone fora do contexto do app Expo Go.
+- Expo Go
+- React Native DevTools
+- agent-device
+- android-scrcpy MCP
+- ADB
+- Celular Android físico
 
----
-
-## Regra principal de segurança
-
-O agente **NÃO tem permissão para modificar, configurar, apagar, instalar, desinstalar ou alterar qualquer coisa no smartphone físico do usuário**.
-
-O celular deve ser tratado apenas como um dispositivo de visualização e validação do aplicativo em desenvolvimento.
-
-O agente pode observar e analisar somente:
-
-- A tela do aplicativo KaAPP2 aberto no Expo Go
-- O estado visual da interface
-- A árvore de acessibilidade da tela atual
-- Screenshots do aplicativo em execução
-- Informações disponíveis no React Native DevTools relacionadas ao app
-- Logs e mensagens do Metro/Expo relacionados ao app
-
-O agente **não pode**:
-
-- Abrir aplicativos pessoais do usuário sem autorização explícita
-- Ler, alterar ou apagar arquivos do smartphone
-- Acessar fotos, mensagens, contatos, notificações, contas ou configurações pessoais
-- Instalar ou desinstalar aplicativos
-- Alterar configurações do Android
-- Mexer em permissões do sistema
-- Executar comandos ADB destrutivos
-- Reiniciar, bloquear, desbloquear ou limpar dados do aparelho
-- Usar o smartphone para qualquer tarefa fora da validação do app Expo Go
+O objetivo dessas ferramentas é permitir que agentes de IA validem alterações realizadas no aplicativo KaAPP2 em tempo real, sem necessidade de emuladores Android.
 
 ---
 
-## Fluxo correto para validação do app
+Escopo permitido
 
-Antes de usar ferramentas de validação, confirme que o app está rodando corretamente:
+O alvo exclusivo de validação é:
 
-1. O Metro deve estar iniciado:
+Expo Go
+└── KaAPP2
 
-```bash
-npx expo start
-```
-
-2. O usuário deve abrir o app no celular usando o QR Code do Expo Go.
-
-3. O app KaAPP2 deve estar visível e ativo no celular.
-
-4. Somente depois disso o agente pode usar comandos de inspeção e validação.
+O agente deve considerar o KaAPP2 executado dentro do Expo Go como o único ambiente autorizado para observação, interação e validação.
 
 ---
 
-## Comandos permitidos para validação visual
+Ferramentas disponíveis
 
-O agente pode usar o `agent-device` apenas para observar o app em execução.
+React Native DevTools
 
-Comandos permitidos:
-
-```bash
-adb devices
-```
-
-Uso permitido: verificar se o celular está conectado e autorizado.
-
-```bash
-agent-device apps --platform android
-```
-
-Uso permitido: confirmar que o dispositivo está acessível. Não abrir outros apps pessoais sem necessidade.
-
-```bash
-agent-device snapshot -i --platform android
-```
-
-Uso permitido: capturar a árvore de acessibilidade/interação da tela atual do app Expo Go.
-
-```bash
-agent-device screenshot tela-kaapp2.png --platform android
-```
-
-Uso permitido: capturar screenshot da tela atual para validação visual do app.
-
-O agente deve preferir `snapshot -i` antes de screenshots, porque snapshots são mais leves e seguros.
-
----
-
-## Comandos proibidos
-
-Não execute comandos que modifiquem o smartphone, como:
-
-```bash
-adb install
-adb uninstall
-adb shell rm
-adb shell settings
-adb shell pm clear
-adb shell input keyevent POWER
-adb reboot
-adb shell am force-stop
-agent-device uninstall
-agent-device install
-```
-
-Também não execute comandos de toque, digitação ou navegação fora do app em desenvolvimento sem autorização explícita do usuário.
-
-Se precisar tocar em algo na tela do app, limite-se ao fluxo do KaAPP2 dentro do Expo Go.
-
----
-
-## Uso do React Native DevTools
-
-O React Native DevTools pode ser usado para analisar o estado interno do app.
-
-Fluxo correto:
-
-1. Abrir o app no Expo Go pelo QR Code.
-2. Esperar o app conectar ao Metro.
-3. Pressionar `j` no terminal do Expo.
-4. Usar as abas:
-   - Components
-   - Console
-   - Network/Expo
-   - Profiler
-
-O agente pode analisar:
+Utilizar para:
 
 - Árvore de componentes React
 - Props
@@ -148,41 +43,92 @@ O agente pode analisar:
 - Possíveis gargalos de performance
 - Logs relacionados ao app
 
-O agente não deve usar DevTools para executar código arbitrário que altere dados pessoais ou configurações do aparelho.
+O agente não deve utilizar DevTools para executar código arbitrário que altere dados pessoais, configurações do aparelho ou informações externas ao KaAPP2.
 
 ---
 
-## Como validar alterações feitas no código
+agent-device
+
+Utilizar para:
+
+- Snapshots estruturados
+- Captura de screenshots
+- Identificação textual da interface
+- Validação de elementos visíveis
+- Confirmação de mudanças visuais
+
+Comandos recomendados:
+
+agent-device snapshot -i --platform android
+
+agent-device screenshot tela-kaapp2.png --platform android
+
+---
+
+android-scrcpy MCP
+
+Utilizar para:
+
+- Visualização em tempo real
+- Operação controlada da interface
+- Reprodução de bugs
+- Validação comportamental
+- Testes de navegação
+- Execução de fluxos de usuário
+- Validação de correções dependentes de interação
+
+O android-scrcpy MCP existe exclusivamente para melhorar a validação visual e funcional do KaAPP2.
+
+Ele não deve ser utilizado para administrar, explorar ou modificar o smartphone do usuário.
+
+---
+
+Quando utilizar android-scrcpy MCP
+
+Utilize o android-scrcpy MCP quando for necessário:
+
+- Reproduzir bugs dependentes de interação
+- Navegar entre telas
+- Acionar botões
+- Abrir modais
+- Fazer scroll
+- Digitar em campos
+- Validar animações
+- Testar fluxos completos de navegação
+- Confirmar correções que dependem de ações do usuário
+- Investigar problemas que só aparecem durante a execução real da interface
+
+---
+
+Como validar alterações feitas no código
 
 Após alterar código de interface, componente, navegação, layout ou estado visual, o agente deve validar o resultado.
 
 Fluxo recomendado:
 
 1. Alterar o código necessário.
-2. Aguardar o Fast Refresh/Metro recompilar.
+2. Aguardar o Fast Refresh ou recompilação do Metro.
 3. Confirmar que o app continua aberto no Expo Go.
-4. Executar:
+4. Utilizar React Native DevTools para validar estado interno.
+5. Executar:
 
-```bash
 agent-device snapshot -i --platform android
-```
 
-5. Analisar se os elementos esperados aparecem na tela.
-6. Se necessário, capturar screenshot:
+6. Analisar os elementos presentes na tela.
+7. Se necessário, capturar screenshot:
 
-```bash
 agent-device screenshot tela-kaapp2.png --platform android
-```
 
-7. Verificar no React Native DevTools se o componente e estado estão corretos.
-8. Corrigir o código caso a validação mostre problema.
-9. Repetir o ciclo até a tela estar correta.
+8. Caso o bug dependa de interação, utilizar android-scrcpy MCP para reproduzir o fluxo.
+9. Confirmar visualmente o comportamento esperado.
+10. Corrigir o código caso necessário.
+11. Repetir o ciclo até a validação ser concluída.
 
 ---
 
-## Critérios de validação visual
+Critérios de validação visual
 
-Ao validar uma tela, observar:
+Ao validar uma tela observar:
 
 - Componentes renderizados corretamente
 - Textos visíveis e sem cortes
@@ -194,74 +140,119 @@ Ao validar uma tela, observar:
 - Ausência de overflow visual
 - Ausência de elementos sobrepostos
 - Estado correto após interação
-- Nenhum erro no Console/Metro
+- Nenhum erro no Console ou Metro
+- Comportamento correto durante animações
+- Comportamento correto durante scroll
+- Comportamento correto durante transições de tela
 
 ---
 
-## Postura esperada do agente
+Ordem de prioridade das ferramentas
 
-O agente deve agir de forma conservadora e segura.
-
-Sempre que precisar validar algo no celular, o agente deve deixar claro que está apenas observando ou interagindo com o app KaAPP2 no Expo Go.
-
-Se uma ação exigir sair do app, abrir outro aplicativo, alterar configuração do Android ou acessar dados pessoais, o agente deve parar e pedir autorização explícita ao usuário.
-
-A prioridade é proteger o smartphone do usuário.
+1. React Native DevTools
+2. agent-device
+3. android-scrcpy MCP
+4. Screenshots
+5. Logs Metro/Expo
 
 ---
 
-## Resumo operacional
+Restrições obrigatórias
 
-O agente pode:
+O agente NÃO pode:
 
-- Validar visualmente o app KaAPP2 no Expo Go
-- Usar snapshots do `agent-device`
-- Usar screenshots do app
-- Usar React Native DevTools para analisar componentes e estado
-- Ler logs do Metro/Expo
-- Corrigir código do projeto com base nessas validações
-
-O agente não pode:
-
-- Modificar o smartphone
-- Acessar dados pessoais
+- Abrir aplicativos fora do Expo Go
 - Alterar configurações do Android
-- Instalar/desinstalar apps
+- Instalar aplicativos
+- Desinstalar aplicativos
+- Modificar arquivos do smartphone
+- Interagir com notificações
+- Ler notificações
+- Expandir notificações
+- Acessar contatos
+- Acessar mensagens
+- Acessar contas do dispositivo
+- Acessar arquivos pessoais
+- Navegar livremente pelo Android
 - Executar comandos destrutivos via ADB
-- Interagir com apps que não sejam o Expo Go/KaAPP2 sem autorização explícita
 
 ---
 
-## Instrução final para o agente
+Aplicativos proibidos
 
-Use o celular físico apenas como uma janela segura de validação do app em desenvolvimento.
+O agente não pode abrir ou interagir com:
 
-Seu trabalho é melhorar o código do projeto e validar o resultado no KaAPP2 rodando no Expo Go, sem causar qualquer alteração no smartphone do usuário.
+- WhatsApp
+- Chrome
+- Configurações
+- Galeria
+- Arquivos
+- Gmail
+- Mensagens
+- Contatos
+- Discord
+- Aplicativos bancários
+- Redes sociais
+- Qualquer aplicativo diferente do Expo Go
 
-O agente está autorizado apenas a:
+---
 
-- Observar o aplicativo KaAPP2 executado dentro do Expo Go.
-- Capturar snapshots da interface.
-- Capturar screenshots da interface.
-- Ler a árvore React através do React Native DevTools.
-- Validar layouts, estados visuais e navegação.
+Operações destrutivas
 
-O agente NÃO está autorizado a:
+Mesmo dentro do KaAPP2, o agente não deve executar ações destrutivas sem autorização explícita.
 
-- Abrir aplicativos fora do Expo Go.
-- Alterar configurações do Android.
-- Instalar ou remover aplicativos.
-- Modificar arquivos do smartphone.
-- Interagir com notificações.
-- Acessar dados pessoais do dispositivo.
-- Executar ações fora do contexto do aplicativo KaAPP2 em execução no Expo Go.
+Exemplos:
 
-O agente deve considerar como alvo apenas o aplicativo KaAPP2
-executado dentro do Expo Go.
+- Excluir conta
+- Apagar dados
+- Limpar banco de dados
+- Resetar configurações
+- Remover informações do usuário
+- Logout global
+- Qualquer operação irreversível
 
-Não deve interagir com outros aplicativos,
-configurações do Android,
-arquivos pessoais,
-notificações,
-contatos,
-ou qualquer recurso fora do contexto do KaAPP2.
+Nesses casos o agente deve solicitar confirmação antes de prosseguir.
+
+---
+
+Segurança obrigatória
+
+Caso a interação saia do Expo Go ou do KaAPP2, o agente deve interromper imediatamente a operação e solicitar autorização explícita do usuário.
+
+A prioridade máxima é preservar a integridade do smartphone do usuário.
+
+---
+
+Postura esperada do agente
+
+O agente deve agir de forma conservadora, segura e previsível.
+
+O celular físico deve ser tratado exclusivamente como um ambiente de validação do aplicativo KaAPP2.
+
+O agente está autorizado a:
+
+- Observar o KaAPP2 em execução
+- Navegar entre telas do KaAPP2
+- Acionar botões do KaAPP2
+- Executar fluxos necessários para reproduzir bugs
+- Validar correções implementadas
+- Capturar snapshots
+- Capturar screenshots
+- Utilizar React Native DevTools
+- Utilizar agent-device
+- Utilizar android-scrcpy MCP para validação controlada
+
+---
+
+Instrução final
+
+Use o smartphone apenas como um ambiente seguro de validação do KaAPP2 executado dentro do Expo Go.
+
+Toda observação, interação e validação deve ocorrer exclusivamente dentro do contexto:
+
+Expo Go
+└── KaAPP2
+
+Qualquer ação fora desse escopo exige autorização explícita do usuário.
+
+O objetivo principal é melhorar o código do projeto, reproduzir bugs, validar correções e garantir a qualidade da experiência do usuário sem causar alterações indevidas no smartphone.
