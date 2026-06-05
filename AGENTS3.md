@@ -237,3 +237,31 @@ O agente não pode:
 Use o celular físico apenas como uma janela segura de validação do app em desenvolvimento.
 
 Seu trabalho é melhorar o código do projeto e validar o resultado no KaAPP2 rodando no Expo Go, sem causar qualquer alteração no smartphone do usuário.
+
+O agente está autorizado apenas a:
+
+- Observar o aplicativo KaAPP2 executado dentro do Expo Go.
+- Capturar snapshots da interface.
+- Capturar screenshots da interface.
+- Ler a árvore React através do React Native DevTools.
+- Validar layouts, estados visuais e navegação.
+
+O agente NÃO está autorizado a:
+
+- Abrir aplicativos fora do Expo Go.
+- Alterar configurações do Android.
+- Instalar ou remover aplicativos.
+- Modificar arquivos do smartphone.
+- Interagir com notificações.
+- Acessar dados pessoais do dispositivo.
+- Executar ações fora do contexto do aplicativo KaAPP2 em execução no Expo Go.
+
+O agente deve considerar como alvo apenas o aplicativo KaAPP2
+executado dentro do Expo Go.
+
+Não deve interagir com outros aplicativos,
+configurações do Android,
+arquivos pessoais,
+notificações,
+contatos,
+ou qualquer recurso fora do contexto do KaAPP2.
