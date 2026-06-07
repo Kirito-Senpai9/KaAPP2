@@ -7,8 +7,9 @@ import {
   type GestureResponderEvent,
 } from 'react-native';
 import Reanimated, {
-  FadeIn, FadeInDown, FadeOut, LinearTransition,
-  useAnimatedKeyboard, useAnimatedStyle,
+  Easing as ReaEasing,
+  FadeIn, FadeOut, KeyboardState, LinearTransition,
+  useAnimatedKeyboard, useAnimatedStyle, useDerivedValue, withTiming,
 } from 'react-native-reanimated';
 import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
 import { Image } from 'expo-image';
@@ -27,6 +28,12 @@ const { width, height } = Dimensions.get('window');
 const CHIPS = [
   { id: 'rank', icon: 'flame' as const, label: 'Ranking' },
 ];
+
+const KEYBOARD_OPEN_DURATION = 240;
+const KEYBOARD_CLOSE_DURATION = 220;
+const CHAT_ENTERING = FadeIn.duration(180);
+const CHAT_EXITING = FadeOut.duration(120);
+const CHAT_LAYOUT = LinearTransition.duration(180).easing(ReaEasing.out(ReaEasing.quad));
 
 /** Usuário atual (comentários enviados aparecem com avatar + nome). */
 const SELF = { name: 'Você', avatar: 'https://i.pravatar.cc/150?img=1' };
@@ -203,9 +210,9 @@ const ChatList = memo(function ChatList({ messages }: { messages: LiveChatItem[]
       {messages.map((m) => (
         <Reanimated.View
           key={m.id}
-          entering={FadeInDown.springify().damping(18)}
-          exiting={FadeOut.duration(150)}
-          layout={LinearTransition.springify().damping(18)}
+          entering={CHAT_ENTERING}
+          exiting={CHAT_EXITING}
+          layout={CHAT_LAYOUT}
         >
           <ChatRow item={m} />
         </Reanimated.View>
@@ -243,9 +250,23 @@ const LiveCard = memo(function LiveCard({
 
   // teclado animado (UI thread) — eleva a base suavemente junto com o teclado
   const keyboard = useAnimatedKeyboard();
-  const bottomAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -Math.max(keyboard.height.value - insets.bottom, 0) }],
-  }));
+  const keyboardOffset = useDerivedValue(() => {
+    const target = -Math.max(keyboard.height.value - insets.bottom, 0);
+    const isClosing = keyboard.state.value === KeyboardState.CLOSING || keyboard.state.value === KeyboardState.CLOSED;
+
+    return withTiming(target, {
+      duration: isClosing ? KEYBOARD_CLOSE_DURATION : KEYBOARD_OPEN_DURATION,
+      easing: ReaEasing.out(ReaEasing.quad),
+    });
+  }, [insets.bottom]);
+
+  const bottomAnimStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateY: keyboardOffset.value },
+      ],
+    };
+  });
 
   // pulsar do ponto "AO VIVO"
   useEffect(() => {
@@ -278,6 +299,14 @@ const LiveCard = memo(function LiveCard({
     setIsInputFocused(false);
     setCurrentInteraction(genInteraction());
   }, [item.id, item.chat, item.host.likes, item.host.following, item.viewers]);
+
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidHide', () => {
+      setIsInputFocused(false);
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   // simulação de live: alterna a interação e mexe nos contadores (só na página ativa)
   useEffect(() => {
@@ -318,7 +347,7 @@ const LiveCard = memo(function LiveCard({
 
   const visibleMessages = useMemo(() => {
     const msgs = chat.filter((c) => c.kind === 'message');
-    return msgs.slice(isInputFocused ? -2 : -5);
+    return msgs.slice(isInputFocused ? -3 : -5);
   }, [chat, isInputFocused]);
 
   const livePulseStyle = {
@@ -429,7 +458,7 @@ const LiveCard = memo(function LiveCard({
               onBlur={() => setIsInputFocused(false)}
               onSubmitEditing={handleSend}
               returnKeyType="send"
-              blurOnSubmit={false}
+              submitBehavior="submit"
               placeholder="Comentar..."
               placeholderTextColor="#A6ADCE"
               style={styles.commentInput}
