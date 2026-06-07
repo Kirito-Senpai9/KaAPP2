@@ -19,9 +19,3 @@ export type SharePostPreview = {
   mediaType?: SharePostMediaType;
   caption?: string;
 };
-
-export type ShareTargetSection = {
-  key: 'contacts' | 'communities';
-  title: string;
-  targets: ShareTarget[];
-};

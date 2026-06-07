@@ -1529,8 +1529,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
+    borderWidth: 1.5,
+    borderColor: '#6C63FF',
   },
   userMeta: {
     gap: 2,

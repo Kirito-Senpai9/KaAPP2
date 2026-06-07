@@ -1,8 +1,10 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
+} from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Dimensions, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
-  type StyleProp, type TextStyle, type ViewStyle,
+  Animated, Dimensions, Easing, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
+  type GestureResponderEvent, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -39,6 +41,7 @@ const { width } = Dimensions.get('window');
 
 const TAP_IN_DURATION = 70;
 const TAP_OUT_DURATION = 130;
+const DOUBLE_TAP_DELAY_MS = 280;
 const MENU_ENTER_DURATION = 210;
 const MENU_EXIT_DURATION = 130;
 const SPRING_CONFIG = {
@@ -225,6 +228,74 @@ const ContextMenuActionItem = memo(function ContextMenuActionItem({
   );
 });
 
+type FloatingHeart = {
+  id: number;
+  anim: Animated.Value;
+  x: number;
+  y: number;
+  rotate: number;
+  size: number;
+};
+
+type FloatingHeartsHandle = { spawn: (x: number, y: number) => void };
+
+const FloatingHearts = memo(
+  forwardRef<FloatingHeartsHandle>(function FloatingHearts(_props, ref) {
+    const [hearts, setHearts] = useState<FloatingHeart[]>([]);
+    const idRef = useRef(0);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        spawn(x: number, y: number) {
+          const id = idRef.current++;
+          const anim = new Animated.Value(0);
+          const rotate = Math.random() * 28 - 14;
+          const size = 88 + Math.round(Math.random() * 14);
+
+          setHearts((prev) => {
+            const next = [...prev, { id, anim, x, y, rotate, size }];
+            return next.length > 12 ? next.slice(next.length - 12) : next;
+          });
+
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 720,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start(() => {
+            setHearts((prev) => prev.filter((heart) => heart.id !== id));
+          });
+        },
+      }),
+      []
+    );
+
+    return (
+      <View pointerEvents="none" style={styles.heartsOverlay}>
+        {hearts.map((heart) => (
+          <Animated.View
+            key={heart.id}
+            style={{
+              position: 'absolute',
+              left: heart.x - heart.size / 2,
+              top: heart.y - heart.size / 2,
+              opacity: heart.anim.interpolate({ inputRange: [0, 0.12, 0.8, 1], outputRange: [0, 1, 1, 0] }),
+              transform: [
+                { translateY: heart.anim.interpolate({ inputRange: [0, 1], outputRange: [12, -34] }) },
+                { scale: heart.anim.interpolate({ inputRange: [0, 0.16, 0.38, 1], outputRange: [0.2, 1.24, 0.96, 1.04] }) },
+                { rotate: `${heart.rotate}deg` },
+              ],
+            }}
+          >
+            <Ionicons name="heart" size={heart.size} color="#FF5A8F" />
+          </Animated.View>
+        ))}
+      </View>
+    );
+  })
+);
+
 /* --- Card do Post (com animacoes) --- */
 type PostCardProps = {
   item: Post;
@@ -282,6 +353,8 @@ const PostCard = memo(function PostCard({
   const followScale = useSharedValue(1);
   const followProgress = useSharedValue(isFollowingAuthor ? 1 : 0);
   const menuButtonRef = useRef<View | null>(null);
+  const heartsRef = useRef<FloatingHeartsHandle>(null);
+  const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const likeIconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: likeScale.value }],
@@ -352,8 +425,7 @@ const PostCard = memo(function PostCard({
     ),
   }));
 
-  const handleLike = () => {
-    setLiked(v => !v);
+  const animateLikeIcon = useCallback(() => {
     likeScale.value = withSequence(
       withTiming(0.9, {
         duration: TAP_IN_DURATION,
@@ -365,7 +437,12 @@ const PostCard = memo(function PostCard({
         easing: ICON_EASE_OUT,
       })
     );
-  };
+  }, [likeScale]);
+
+  const handleLike = useCallback(() => {
+    setLiked(v => !v);
+    animateLikeIcon();
+  }, [animateLikeIcon]);
 
   const handleComment = () => {
     commentScale.value = withSequence(
@@ -537,7 +614,7 @@ const PostCard = memo(function PostCard({
     videoPlayer.pause();
   }, [hasVideoError, isVideoPost, shouldAutoPlay, videoPlayer]);
 
-  const handleVideoPress = async () => {
+  const handleVideoPress = useCallback(async () => {
     if (!isVideoPost || hasVideoError) return;
 
     if (hasEnded) {
@@ -553,7 +630,7 @@ const PostCard = memo(function PostCard({
     }
 
     setIsPausedByUser(false);
-  };
+  }, [hasEnded, hasVideoError, isPlaying, isVideoPost, videoPlayer]);
 
   const handleReplay = async () => {
     setHasEnded(false);
@@ -561,10 +638,43 @@ const PostCard = memo(function PostCard({
     videoPlayer.replay();
   };
 
+  const handleDoubleTapLike = useCallback((x: number, y: number) => {
+    setLiked(true);
+    animateLikeIcon();
+    heartsRef.current?.spawn(x, y);
+  }, [animateLikeIcon]);
+
+  const handleMediaTap = useCallback((event: GestureResponderEvent) => {
+    const { locationX, locationY } = event.nativeEvent;
+
+    if (singleTapTimeoutRef.current) {
+      clearTimeout(singleTapTimeoutRef.current);
+      singleTapTimeoutRef.current = null;
+      handleDoubleTapLike(locationX, locationY);
+      return;
+    }
+
+    singleTapTimeoutRef.current = setTimeout(() => {
+      singleTapTimeoutRef.current = null;
+
+      if (isVideoPost) {
+        void handleVideoPress();
+      }
+    }, DOUBLE_TAP_DELAY_MS);
+  }, [handleDoubleTapLike, handleVideoPress, isVideoPost]);
+
+  useEffect(() => (
+    () => {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+      }
+    }
+  ), []);
+
   const renderMedia = () => {
     if (item.type === 'image' && item.image) {
       return (
-        <View style={styles.mediaWrap}>
+        <Pressable style={styles.mediaWrap} onPress={handleMediaTap}>
           <Image
             source={{ uri: item.image }}
             style={styles.media}
@@ -572,7 +682,8 @@ const PostCard = memo(function PostCard({
             cachePolicy="memory-disk"
             recyclingKey={item.image}
           />
-        </View>
+          <FloatingHearts ref={heartsRef} />
+        </Pressable>
       );
     }
 
@@ -580,10 +691,9 @@ const PostCard = memo(function PostCard({
       const isVertical = item.type === 'video-vertical';
 
       return (
-        <TouchableOpacity
-          activeOpacity={1}
+        <Pressable
           style={[styles.videoWrap, isVertical ? styles.verticalVideoWrap : styles.horizontalVideoWrap]}
-          onPress={handleVideoPress}
+          onPress={handleMediaTap}
         >
           <VideoView
             player={videoPlayer}
@@ -606,6 +716,7 @@ const PostCard = memo(function PostCard({
               recyclingKey={item.thumbnail}
             />
           )}
+          <FloatingHearts ref={heartsRef} />
 
           <TouchableOpacity
             style={styles.muteButton}
@@ -637,7 +748,7 @@ const PostCard = memo(function PostCard({
               <Ionicons name="refresh" size={28} color="#F8F9FF" />
             </TouchableOpacity>
           )}
-        </TouchableOpacity>
+        </Pressable>
       );
     }
 
@@ -1267,7 +1378,7 @@ const styles = StyleSheet.create({
   storyAvatarWrap: {
     position: 'absolute', top: 6, right: 8,
     width: 28, height: 28, borderRadius: 14,
-    borderWidth: 2, borderColor: '#fff',
+    borderWidth: 2, borderColor: '#6C63FF',
     backgroundColor: '#000', overflow: 'hidden',
   },
   storyAvatar: { width: '100%', height: '100%', borderRadius: 14 },
@@ -1323,8 +1434,9 @@ const styles = StyleSheet.create({
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
   // midia com aspectRatio (evita reflow)
-  mediaWrap: { width, backgroundColor: '#15182f' },
+  mediaWrap: { width, backgroundColor: '#15182f', overflow: 'hidden' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
+  heartsOverlay: { ...StyleSheet.absoluteFillObject },
 
   videoWrap: {
     width,

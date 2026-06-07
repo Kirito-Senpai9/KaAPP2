@@ -11,7 +11,13 @@ import Reanimated, {
   FadeIn, FadeOut, KeyboardState, LinearTransition,
   useAnimatedKeyboard, useAnimatedStyle, useDerivedValue, withTiming,
 } from 'react-native-reanimated';
-import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
+import {
+  FlashList,
+  type FlashListProps,
+  type FlashListRef,
+  type ListRenderItem,
+  type ViewToken,
+} from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -31,9 +37,16 @@ const CHIPS = [
 
 const KEYBOARD_OPEN_DURATION = 240;
 const KEYBOARD_CLOSE_DURATION = 220;
+const CHAT_VISIBLE_COUNT = 7;
+const CHAT_FOCUSED_VISIBLE_COUNT = 3;
 const CHAT_ENTERING = FadeIn.duration(180);
 const CHAT_EXITING = FadeOut.duration(120);
 const CHAT_LAYOUT = LinearTransition.duration(180).easing(ReaEasing.out(ReaEasing.quad));
+const CHAT_MAINTAIN_VISIBLE_CONTENT_POSITION = {
+  startRenderingFromBottom: true,
+  autoscrollToBottomThreshold: 0.2,
+  animateAutoScrollToBottom: true,
+};
 
 /** Usuário atual (comentários enviados aparecem com avatar + nome). */
 const SELF = { name: 'Você', avatar: 'https://i.pravatar.cc/150?img=1' };
@@ -204,19 +217,83 @@ function ChatRow({ item }: { item: LiveChatItem }) {
    Só re-renderiza quando os comentários mudam —
    curtidas/contadores/interação não a afetam.
 ========================================= */
-const ChatList = memo(function ChatList({ messages }: { messages: LiveChatItem[] }) {
+const chatKeyExtractor = (item: LiveChatItem) => item.id;
+const chatGetItemType = () => 'message';
+
+const ChatList = memo(function ChatList({
+  messages,
+  visibleCount,
+  onBlankPress,
+}: {
+  messages: LiveChatItem[];
+  visibleCount: number;
+  onBlankPress: (event: GestureResponderEvent) => void;
+}) {
+  const listRef = useRef<FlashListRef<LiveChatItem>>(null);
+  const canScroll = messages.length > visibleCount;
+  const visibleRows = Math.min(messages.length, visibleCount);
+  const chatHeight = visibleRows > 0 ? visibleRows * 34 + Math.max(visibleRows - 1, 0) * 7 : 0;
+  const chatStreamStyle = useMemo(() => ({
+    width: width * 0.72,
+    height: chatHeight,
+    marginBottom: 10,
+    overflow: 'hidden' as const,
+  }), [chatHeight]);
+
+  const renderChatItem = useCallback<ListRenderItem<LiveChatItem>>(
+    ({ item }) => (
+      <Reanimated.View
+        entering={CHAT_ENTERING}
+        exiting={CHAT_EXITING}
+        layout={CHAT_LAYOUT}
+      >
+        <View style={styles.chatCell}>
+          <View style={styles.chatCellContent}>
+            <ChatRow item={item} />
+          </View>
+          <Pressable
+            style={styles.chatBlankLikeArea}
+            onPress={onBlankPress}
+            accessibilityLabel="Curtir live"
+          />
+        </View>
+      </Reanimated.View>
+    ),
+    [onBlankPress]
+  );
+
+  const renderChatSeparator = useCallback(
+    () => (
+      <Pressable
+        style={styles.chatItemSeparator}
+        onPress={onBlankPress}
+        accessibilityLabel="Curtir live"
+      />
+    ),
+    [onBlankPress]
+  );
+
   return (
-    <View style={styles.chatStream}>
-      {messages.map((m) => (
-        <Reanimated.View
-          key={m.id}
-          entering={CHAT_ENTERING}
-          exiting={CHAT_EXITING}
-          layout={CHAT_LAYOUT}
-        >
-          <ChatRow item={m} />
-        </Reanimated.View>
-      ))}
+    <View style={chatStreamStyle}>
+      <FlashList
+        ref={listRef}
+        data={messages}
+        renderItem={renderChatItem}
+        keyExtractor={chatKeyExtractor}
+        getItemType={chatGetItemType}
+        ItemSeparatorComponent={renderChatSeparator}
+        maintainVisibleContentPosition={CHAT_MAINTAIN_VISIBLE_CONTENT_POSITION}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={canScroll}
+        showsVerticalScrollIndicator={canScroll}
+        style={styles.chatStreamList}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,0,0,0.72)', 'rgba(0,0,0,0.0)']}
+        style={styles.chatTopFade}
+      />
     </View>
   );
 });
@@ -335,6 +412,15 @@ const LiveCard = memo(function LiveCard({
     registerLike(locationX, locationY);
   }, [isInputFocused, registerLike]);
 
+  const onBlankCommentAreaPress = useCallback((event: GestureResponderEvent) => {
+    if (isInputFocused) {
+      Keyboard.dismiss();
+      return;
+    }
+    const { pageX, pageY } = event.nativeEvent;
+    registerLike(pageX, pageY);
+  }, [isInputFocused, registerLike]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -345,10 +431,10 @@ const LiveCard = memo(function LiveCard({
     setInput('');
   }, [input]);
 
-  const visibleMessages = useMemo(() => {
-    const msgs = chat.filter((c) => c.kind === 'message');
-    return msgs.slice(isInputFocused ? -3 : -5);
-  }, [chat, isInputFocused]);
+  const chatMessages = useMemo(() => {
+    return chat.filter((c) => c.kind === 'message');
+  }, [chat]);
+  const visibleMessageCount = isInputFocused ? CHAT_FOCUSED_VISIBLE_COUNT : CHAT_VISIBLE_COUNT;
 
   const livePulseStyle = {
     opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.3] }),
@@ -434,8 +520,15 @@ const LiveCard = memo(function LiveCard({
       </View>
 
       {/* ====== BASE: comentários → linha de interação → barra ====== */}
-      <Reanimated.View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 8 }, bottomAnimStyle]}>
-        <ChatList messages={visibleMessages} />
+      <Reanimated.View
+        pointerEvents="box-none"
+        style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 8 }, bottomAnimStyle]}
+      >
+        <ChatList
+          messages={chatMessages}
+          visibleCount={visibleMessageCount}
+          onBlankPress={onBlankCommentAreaPress}
+        />
 
         {/* linha única de interação (alterna no mesmo lugar, não sobe) */}
         <View style={styles.interactionLine}>
@@ -654,7 +747,12 @@ const styles = StyleSheet.create({
 
   /* ===== Base: chat + interação + barra ===== */
   bottomWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 12 },
-  chatStream: { maxWidth: width * 0.72, gap: 7, marginBottom: 10 },
+  chatStreamList: { flex: 1 },
+  chatTopFade: { position: 'absolute', top: 0, left: 0, right: 0, height: 34 },
+  chatItemSeparator: { height: 7 },
+  chatCell: { width: '100%', flexDirection: 'row', alignItems: 'stretch' },
+  chatCellContent: { maxWidth: '100%', flexShrink: 1 },
+  chatBlankLikeArea: { flex: 1, alignSelf: 'stretch', minHeight: 30 },
   chatMsg: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   chatAvatar: { width: 26, height: 26, borderRadius: 13, marginTop: 1 },
   chatBubble: {

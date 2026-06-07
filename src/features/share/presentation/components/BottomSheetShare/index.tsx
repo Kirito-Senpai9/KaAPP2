@@ -26,34 +26,24 @@ import {
   type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  buildShareTargetSections,
-  filterShareTargets,
-} from '@/features/share/application/use-cases/shareTargets';
+import { buildShareTargetList } from '@/features/share/application/use-cases/shareTargets';
 import type {
   SharePostPreview,
   ShareTarget,
 } from '@/features/share/domain/entities/share';
 import ShareTargetTile from '@/features/share/presentation/components/BottomSheetShare/ShareTargetTile';
 import { useShareTargets } from '@/features/share/presentation/hooks/useShareTargets';
+import { useRecentShareTargetsStore } from '@/features/share/presentation/store/useRecentShareTargetsStore';
 import type { RootStackParamList } from '@/app/navigation/types';
 
-type ShareListRow =
-  | {
-      id: string;
-      type: 'section';
-      title: string;
-    }
-  | {
-      id: string;
-      type: 'targets';
-      targets: ShareTarget[];
-    };
+type ShareListRow = {
+  id: string;
+  targets: ShareTarget[];
+};
 
 export type BottomSheetShareProps = {
   visible: boolean;
@@ -93,6 +83,8 @@ function BottomSheetShareComponent({
   const [footerHeight, setFooterHeight] = useState(0);
   const snapPoints = useMemo(() => ['70%', '92%'], []);
   const { targets } = useShareTargets(visible);
+  const recentIds = useRecentShareTargetsStore((state) => state.recentIds);
+  const markShared = useRecentShareTargetsStore((state) => state.markShared);
 
   const resetState = useCallback(() => {
     setSearchQuery('');
@@ -114,37 +106,19 @@ function BottomSheetShareComponent({
     modalRef.current?.present();
   }, [post, resetState, visible]);
 
-  const filteredTargets = useMemo(
-    () => filterShareTargets(targets, searchQuery),
-    [searchQuery, targets]
+  const orderedTargets = useMemo(
+    () => buildShareTargetList(targets, searchQuery, recentIds),
+    [recentIds, searchQuery, targets]
   );
 
-  const sections = useMemo(
-    () => buildShareTargetSections(filteredTargets),
-    [filteredTargets]
+  const rows = useMemo<ShareListRow[]>(
+    () =>
+      chunkTargets(orderedTargets, 4).map((targetsChunk, rowIndex) => ({
+        id: `targets-${rowIndex}`,
+        targets: targetsChunk,
+      })),
+    [orderedTargets]
   );
-
-  const rows = useMemo<ShareListRow[]>(() => {
-    const nextRows: ShareListRow[] = [];
-
-    sections.forEach((section) => {
-      nextRows.push({
-        id: `section-${section.key}`,
-        type: 'section',
-        title: section.title,
-      });
-
-      chunkTargets(section.targets, 4).forEach((targetsChunk, rowIndex) => {
-        nextRows.push({
-          id: `targets-${section.key}-${rowIndex}`,
-          type: 'targets',
-          targets: targetsChunk,
-        });
-      });
-    });
-
-    return nextRows;
-  }, [sections]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedCount = selectedIds.length;
@@ -191,6 +165,7 @@ function BottomSheetShareComponent({
         : `${selectedTargets.length} contatos e comunidades`;
 
     onShareIncrement?.(post.id, selectedTargets.length);
+    markShared(selectedIds);
     onClose();
     resetState();
 
@@ -201,13 +176,15 @@ function BottomSheetShareComponent({
       );
     });
   }, [
+    markShared,
     onClose,
     onShareIncrement,
     post,
     resetState,
-    shareContextLabel,
     selectedCount,
+    selectedIds,
     selectedTargets,
+    shareContextLabel,
   ]);
 
   const handleExternalShare = useCallback(() => {
@@ -265,26 +242,6 @@ function BottomSheetShareComponent({
           </View>
         </View>
 
-        {post && (
-          <View style={styles.postPreview}>
-            <Image
-              source={{ uri: post.authorAvatar }}
-              style={styles.postPreviewAvatar}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={post.authorAvatar}
-            />
-            <View style={styles.postPreviewTextWrap}>
-              <Text style={styles.postPreviewTitle}>
-                {shareContextLabel} de {post.authorName}
-              </Text>
-              <Text style={styles.postPreviewText} numberOfLines={2}>
-                {post.text}
-              </Text>
-            </View>
-          </View>
-        )}
-
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={18} color="#98A2D9" />
           <BottomSheetTextInput
@@ -306,7 +263,7 @@ function BottomSheetShareComponent({
         </View>
       </View>
     ),
-    [post, searchQuery, selectedCount, shareContextLabel]
+    [searchQuery, selectedCount]
   );
 
   const renderFooter = useCallback(
@@ -394,32 +351,26 @@ function BottomSheetShareComponent({
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: ShareListRow }) => {
-      if (item.type === 'section') {
-        return <Text style={styles.sectionTitle}>{item.title}</Text>;
-      }
-
-      return (
-        <View style={styles.targetsRow}>
-          {item.targets.map((target) => (
-            <ShareTargetTile
-              key={target.id}
-              target={target}
-              selected={selectedSet.has(target.id)}
-              onPress={toggleSelection}
+    ({ item }: { item: ShareListRow }) => (
+      <View style={styles.targetsRow}>
+        {item.targets.map((target) => (
+          <ShareTargetTile
+            key={target.id}
+            target={target}
+            selected={selectedSet.has(target.id)}
+            onPress={toggleSelection}
+          />
+        ))}
+        {Array.from({ length: Math.max(0, 4 - item.targets.length) }).map(
+          (_, index) => (
+            <View
+              key={`${item.id}-spacer-${index}`}
+              style={styles.targetSpacer}
             />
-          ))}
-          {Array.from({ length: Math.max(0, 4 - item.targets.length) }).map(
-            (_, index) => (
-              <View
-                key={`${item.id}-spacer-${index}`}
-                style={styles.targetSpacer}
-              />
-            )
-          )}
-        </View>
-      );
-    },
+          )
+        )}
+      </View>
+    ),
     [selectedSet, toggleSelection]
   );
 
@@ -521,36 +472,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  postPreview: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  postPreviewAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-  },
-  postPreviewTextWrap: {
-    flex: 1,
-  },
-  postPreviewTitle: {
-    color: '#F6F8FF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  postPreviewText: {
-    color: '#A6B0E2',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 2,
-  },
   searchBar: {
     marginTop: 14,
     flexDirection: 'row',
@@ -571,14 +492,6 @@ const styles = StyleSheet.create({
   },
   searchClear: {
     marginLeft: 6,
-  },
-  sectionTitle: {
-    color: '#DDE2FF',
-    fontSize: 13,
-    fontWeight: '800',
-    marginTop: 10,
-    marginBottom: 8,
-    letterSpacing: 0.2,
   },
   targetsRow: {
     flexDirection: 'row',
