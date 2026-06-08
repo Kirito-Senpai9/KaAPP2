@@ -22,9 +22,11 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
+import KzonePlaceholder from '@/features/feed/presentation/components/KzonePlaceholder';
 import { BottomSheetComments, type CommentPostPreview } from '@/features/comments';
 import { BottomSheetShare, type SharePostPreview } from '@/features/share';
 import { useStories } from '@/features/stories';
@@ -977,6 +979,10 @@ export default function Home() {
   const setAuthorFollowState = useFeedUiStore((state) => state.setAuthorFollowState);
   const menuProgress = useSharedValue(0);
 
+  const [activePage, setActivePage] = useState<0 | 1>(0);
+  const pageProgress = useSharedValue(0);
+  const dragStart = useSharedValue(0);
+
   const isMenuVisible = !!menuData;
 
   const menuAnimatedStyle = useAnimatedStyle(() => ({
@@ -987,6 +993,66 @@ export default function Home() {
       { scaleY: interpolate(menuProgress.value, [0, 1], [0.92, 1]) },
     ],
   }));
+
+  const trackAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -pageProgress.value * width }],
+  }));
+
+  const goToKachan = useCallback(() => {
+    pageProgress.value = withSpring(0, { damping: 18, stiffness: 200 });
+    setActivePage(0);
+  }, [pageProgress]);
+
+  const makeTitlePan = useCallback(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-12, 12])
+        .onStart(() => {
+          dragStart.value = pageProgress.value;
+        })
+        .onUpdate((event) => {
+          pageProgress.value = Math.min(
+            Math.max(dragStart.value - event.translationX / width, 0),
+            1
+          );
+        })
+        .onEnd((event) => {
+          const target =
+            event.velocityX < -500
+              ? 1
+              : event.velocityX > 500
+                ? 0
+                : pageProgress.value > 0.5
+                  ? 1
+                  : 0;
+          pageProgress.value = withSpring(target, {
+            damping: 18,
+            stiffness: 200,
+          });
+          runOnJS(setActivePage)(target as 0 | 1);
+        }),
+    [dragStart, pageProgress]
+  );
+
+  const kachanTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
+  const kzoneTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
+
+  useEffect(() => {
+    if (activePage !== 1) {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        goToKachan();
+        return true;
+      }
+    );
+
+    return () => subscription.remove();
+  }, [activePage, goToKachan]);
 
   const finishCloseContextMenu = useCallback(() => {
     storeCloseContextMenu();
@@ -1255,28 +1321,50 @@ export default function Home() {
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} start={[0,0]} end={[1,1]} style={StyleSheet.absoluteFill} />
 
-      {/* Topo fixo: nome + sino */}
-      <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <Text style={styles.logo}>KaChan!</Text>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
-          <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
-        </TouchableOpacity>
-      </View>
+      {/* Pager horizontal: arraste o nome para alternar KaChan! <-> Kzone! */}
+      <Reanimated.View style={[styles.pagerTrack, trackAnimatedStyle]}>
+        {/* Pagina 0 — KaChan! */}
+        <View style={styles.page}>
+          {/* Topo fixo: nome (puxador) + sino */}
+          <View style={[styles.topBar, { paddingTop: insets.top }]}>
+            <GestureDetector gesture={kachanTitlePan}>
+              <View hitSlop={12} style={styles.logoHandle}>
+                <Text style={styles.logo}>KaChan!</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color="rgba(229,231,244,0.5)"
+                />
+              </View>
+            </GestureDetector>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
+              <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
+            </TouchableOpacity>
+          </View>
 
-      {/* Feed: Stories no header (sobem juntos) */}
-      <FlatList
-        data={posts}
-        keyExtractor={(p) => p.id}
-        renderItem={renderPost}
-        ListHeaderComponent={feedHeader}
-        extraData={feedExtraData}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.feedContent}
-        removeClippedSubviews={false}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-      />
+          {/* Feed: Stories no header (sobem juntos) */}
+          <FlatList
+            data={posts}
+            keyExtractor={(p) => p.id}
+            renderItem={renderPost}
+            ListHeaderComponent={feedHeader}
+            extraData={feedExtraData}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.feedContent}
+            removeClippedSubviews={false}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+          />
+        </View>
+
+        {/* Pagina 1 — Kzone! (previa) */}
+        <KzonePlaceholder
+          titlePan={kzoneTitlePan}
+          topInset={insets.top}
+          onBack={goToKachan}
+        />
+      </Reanimated.View>
 
       <BottomSheetComments
         visible={!!commentsPost}
@@ -1365,9 +1453,14 @@ export default function Home() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
+  // pager KaChan! <-> Kzone!
+  pagerTrack: { flex: 1, flexDirection: 'row', width: width * 2 },
+  page: { width },
+
   // topo fixo
   topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.3 },
+  logoHandle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingRight: 8 },
 
   // stories
   storiesWrap: { paddingVertical: 10, marginBottom: 8 },
