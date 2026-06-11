@@ -1,7 +1,9 @@
 import React from 'react';
 import {
+  BackHandler,
   Dimensions,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -21,6 +23,9 @@ import Reanimated, {
 
 const { width } = Dimensions.get('window');
 
+type KzoneFeedMode = 'for-you' | 'hype' | 'following';
+type KzoneHypeFilterId = 'for-you' | 'esports' | 'entertainment' | 'news';
+
 const ACTION_TIMING = {
   duration: 110,
   easing: ReanimatedEasing.out(ReanimatedEasing.quad),
@@ -31,6 +36,32 @@ const ACTION_SPRING = {
   mass: 0.7,
   stiffness: 240,
 };
+
+const MENU_ANIMATION = {
+  duration: 180,
+  easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+};
+
+const KZONE_FEED_OPTIONS: Array<{
+  id: KzoneFeedMode;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { id: 'for-you', label: 'Para voce', icon: 'sparkles-outline' },
+  { id: 'hype', label: 'Hype', icon: 'flame-outline' },
+  { id: 'following', label: 'Seguindo', icon: 'people-outline' },
+];
+
+const KZONE_HYPE_FILTERS: Array<{
+  id: KzoneHypeFilterId;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { id: 'for-you', label: 'Quentes para voce', icon: 'flame-outline' },
+  { id: 'esports', label: 'E-Sports', icon: 'game-controller-outline' },
+  { id: 'entertainment', label: 'Entretenimento', icon: 'tv-outline' },
+  { id: 'news', label: 'Noticias', icon: 'newspaper-outline' },
+];
 
 type KzonePostMedia =
   | {
@@ -62,7 +93,20 @@ type KzonePreviewPost = {
   likesCount: number;
   viewsCount: number;
   sharesCount: number;
+  isFollowing: boolean;
   media?: KzonePostMedia[];
+};
+
+type KzoneHypeTopic = {
+  id: string;
+  title: string;
+  category: Exclude<KzoneHypeFilterId, 'for-you'>;
+  categoryLabel: string;
+  description: string;
+  mentions: number;
+  growth: number;
+  score: number;
+  icon: keyof typeof Ionicons.glyphMap;
 };
 
 const KZONE_POSTS: KzonePreviewPost[] = [
@@ -81,6 +125,7 @@ const KZONE_POSTS: KzonePreviewPost[] = [
     likesCount: 284,
     viewsCount: 8200,
     sharesCount: 31,
+    isFollowing: true,
   },
   {
     id: 'dev-question',
@@ -97,6 +142,7 @@ const KZONE_POSTS: KzonePreviewPost[] = [
     likesCount: 391,
     viewsCount: 14000,
     sharesCount: 58,
+    isFollowing: true,
     media: [
       {
         id: 'dev-question-board',
@@ -122,6 +168,7 @@ const KZONE_POSTS: KzonePreviewPost[] = [
     likesCount: 167,
     viewsCount: 5700,
     sharesCount: 22,
+    isFollowing: false,
     media: [
       {
         id: 'trend-ui-1',
@@ -154,6 +201,7 @@ const KZONE_POSTS: KzonePreviewPost[] = [
     likesCount: 203,
     viewsCount: 6400,
     sharesCount: 27,
+    isFollowing: true,
     media: [
       {
         id: 'open-question-1',
@@ -200,6 +248,7 @@ const KZONE_POSTS: KzonePreviewPost[] = [
     likesCount: 249,
     viewsCount: 9800,
     sharesCount: 36,
+    isFollowing: false,
     media: [
       {
         id: 'demo-video-thumb',
@@ -211,6 +260,81 @@ const KZONE_POSTS: KzonePreviewPost[] = [
         duration: '0:42',
       },
     ],
+  },
+];
+
+const KZONE_HYPE_TOPICS: KzoneHypeTopic[] = [
+  {
+    id: 'kzone-beta',
+    title: 'Kzone abre nova fase de testes no KaAPP2',
+    category: 'news',
+    categoryLabel: 'Noticias',
+    description:
+      'A comunidade discute os primeiros formatos de descoberta e conversa do novo feed.',
+    mentions: 128400,
+    growth: 48,
+    score: 98200,
+    icon: 'newspaper-outline',
+  },
+  {
+    id: 'esports-final',
+    title: 'Final brasileira movimenta o cenario competitivo',
+    category: 'esports',
+    categoryLabel: 'E-Sports',
+    description:
+      'Analises, melhores jogadas e previsoes dominam as conversas desta tarde.',
+    mentions: 96400,
+    growth: 41,
+    score: 89100,
+    icon: 'game-controller-outline',
+  },
+  {
+    id: 'anime-season',
+    title: 'Nova temporada de anime surpreende na estreia',
+    category: 'entertainment',
+    categoryLabel: 'Entretenimento',
+    description:
+      'Teorias e reacoes ao primeiro episodio colocam a serie entre os assuntos do dia.',
+    mentions: 78500,
+    growth: 36,
+    score: 81400,
+    icon: 'tv-outline',
+  },
+  {
+    id: 'ai-agents',
+    title: 'Agentes de IA ganham espaco em projetos mobile',
+    category: 'news',
+    categoryLabel: 'Noticias',
+    description:
+      'Desenvolvedores compartilham experiencias, limites e novos casos de uso.',
+    mentions: 64200,
+    growth: 29,
+    score: 73900,
+    icon: 'newspaper-outline',
+  },
+  {
+    id: 'championship-roster',
+    title: 'Mudanca de elenco agita campeonato de E-Sports',
+    category: 'esports',
+    categoryLabel: 'E-Sports',
+    description:
+      'A transferencia inesperada abriu debates sobre a proxima etapa da competicao.',
+    mentions: 51900,
+    growth: 24,
+    score: 66200,
+    icon: 'game-controller-outline',
+  },
+  {
+    id: 'streaming-premiere',
+    title: 'Estreia de ficcao cientifica divide opinioes',
+    category: 'entertainment',
+    categoryLabel: 'Entretenimento',
+    description:
+      'Visual, roteiro e referencias viraram os principais pontos da conversa.',
+    mentions: 43800,
+    growth: 18,
+    score: 58400,
+    icon: 'tv-outline',
   },
 ];
 
@@ -237,10 +361,16 @@ function formatKzoneCount(count: number) {
 type KzonePlaceholderProps = {
   titlePan: PanGesture;
   topInset: number;
-  onBack: () => void;
 };
 
-function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps) {
+function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
+  const [activeFeed, setActiveFeed] =
+    React.useState<KzoneFeedMode>('for-you');
+  const [activeHypeFilter, setActiveHypeFilter] =
+    React.useState<KzoneHypeFilterId>('for-you');
+  const [isFeedMenuOpen, setIsFeedMenuOpen] = React.useState(false);
+  const menuProgress = useSharedValue(0);
+
   const renderPost = React.useCallback(
     ({ item }: { item: KzonePreviewPost }) => <KzonePostPreview post={item} />,
     [],
@@ -252,6 +382,114 @@ function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps)
   );
 
   const getItemType = React.useCallback(() => 'post', []);
+
+  const renderHypeItem = React.useCallback(
+    ({ item, index }: { item: KzoneHypeTopic; index: number }) => (
+      <KzoneHypeItem topic={item} rank={index + 1} />
+    ),
+    [],
+  );
+
+  const hypeKeyExtractor = React.useCallback(
+    (item: KzoneHypeTopic) => item.id,
+    [],
+  );
+
+  const getHypeItemType = React.useCallback(
+    (_item: KzoneHypeTopic, index: number) =>
+      index === 0 ? 'hype-top' : 'hype',
+    [],
+  );
+
+  const visiblePosts = React.useMemo(
+    () =>
+      activeFeed === 'following'
+        ? KZONE_POSTS.filter((post) => post.isFollowing)
+        : KZONE_POSTS,
+    [activeFeed],
+  );
+
+  const visibleHypeTopics = React.useMemo(
+    () =>
+      KZONE_HYPE_TOPICS.filter(
+        (topic) =>
+          activeHypeFilter === 'for-you' ||
+          topic.category === activeHypeFilter,
+      ).sort((left, right) => right.score - left.score),
+    [activeHypeFilter],
+  );
+
+  const activeFeedLabel = React.useMemo(
+    () =>
+      KZONE_FEED_OPTIONS.find((option) => option.id === activeFeed)?.label ??
+      'Para voce',
+    [activeFeed],
+  );
+
+  const menuAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: menuProgress.value,
+    transform: [
+      { translateY: (1 - menuProgress.value) * -10 },
+      { scale: 0.96 + menuProgress.value * 0.04 },
+    ],
+  }));
+
+  const menuBackdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: menuProgress.value,
+  }));
+
+  const menuChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${menuProgress.value * 180}deg` }],
+  }));
+
+  const openFeedMenu = React.useCallback(() => {
+    setIsFeedMenuOpen(true);
+    menuProgress.value = withTiming(1, MENU_ANIMATION);
+  }, [menuProgress]);
+
+  const closeFeedMenu = React.useCallback(() => {
+    menuProgress.value = withTiming(0, MENU_ANIMATION);
+    setIsFeedMenuOpen(false);
+  }, [menuProgress]);
+
+  const toggleFeedMenu = React.useCallback(() => {
+    if (isFeedMenuOpen) {
+      closeFeedMenu();
+    } else {
+      openFeedMenu();
+    }
+  }, [closeFeedMenu, isFeedMenuOpen, openFeedMenu]);
+
+  const handleFeedSelect = React.useCallback(
+    (feed: KzoneFeedMode) => {
+      setActiveFeed(feed);
+      closeFeedMenu();
+    },
+    [closeFeedMenu],
+  );
+
+  const handleHypeFilterSelect = React.useCallback(
+    (filter: KzoneHypeFilterId) => {
+      setActiveHypeFilter(filter);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    if (!isFeedMenuOpen) {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        closeFeedMenu();
+        return true;
+      },
+    );
+
+    return () => subscription.remove();
+  }, [closeFeedMenu, isFeedMenuOpen]);
 
   return (
     <View style={styles.page}>
@@ -280,32 +518,342 @@ function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps)
           </View>
 
           <Pressable
-            onPress={onBack}
+            onPress={toggleFeedMenu}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel="Voltar para o feed KaChan!"
+            accessibilityLabel={`Abrir seletor de feed. Atual: ${activeFeedLabel}`}
+            accessibilityState={{ expanded: isFeedMenuOpen }}
             style={({ pressed }) => [
-              styles.backPill,
-              pressed && styles.backPillPressed,
+              styles.feedSelector,
+              isFeedMenuOpen && styles.feedSelectorActive,
+              pressed && styles.feedSelectorPressed,
             ]}
           >
-            <Ionicons name="chevron-back" size={15} color="#A6ADCE" />
-            <Text style={styles.backPillText}>KaChan!</Text>
+            <Ionicons name="grid-outline" size={15} color="#B9B3FF" />
+            <Text style={styles.feedSelectorText} numberOfLines={1}>
+              {activeFeedLabel}
+            </Text>
+            <Reanimated.View style={menuChevronStyle}>
+              <Ionicons name="chevron-down" size={14} color="#8D95B6" />
+            </Reanimated.View>
           </Pressable>
         </View>
       </View>
 
-      <FlashList
-        data={KZONE_POSTS}
-        renderItem={renderPost}
-        keyExtractor={keyExtractor}
-        getItemType={getItemType}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-      />
+      {activeFeed === 'hype' ? (
+        <FlashList
+          key={`hype-${activeHypeFilter}`}
+          data={visibleHypeTopics}
+          renderItem={renderHypeItem}
+          keyExtractor={hypeKeyExtractor}
+          getItemType={getHypeItemType}
+          ListHeaderComponent={
+            <KzoneHypeFilters
+              activeFilter={activeHypeFilter}
+              onSelect={handleHypeFilterSelect}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+        />
+      ) : (
+        <FlashList
+          key={activeFeed}
+          data={visiblePosts}
+          renderItem={renderPost}
+          keyExtractor={keyExtractor}
+          getItemType={getItemType}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
+
+      <View
+        pointerEvents={isFeedMenuOpen ? 'auto' : 'none'}
+        style={styles.feedMenuLayer}
+      >
+        <Reanimated.View
+          style={[styles.feedMenuBackdropLayer, menuBackdropAnimatedStyle]}
+        >
+          <Pressable
+            accessibilityLabel="Fechar seletor de feed"
+            accessibilityRole="button"
+            onPress={closeFeedMenu}
+            style={styles.feedMenuBackdrop}
+          />
+        </Reanimated.View>
+
+        <Reanimated.View
+          style={[
+            styles.feedMenuPanel,
+            { top: topInset + 54 },
+            menuAnimatedStyle,
+          ]}
+        >
+          <View style={styles.feedMenuGrid}>
+            {KZONE_FEED_OPTIONS.map((option) => (
+              <KzoneFeedMenuOption
+                key={option.id}
+                active={option.id === activeFeed}
+                feed={option.id}
+                icon={option.icon}
+                label={option.label}
+                onSelect={handleFeedSelect}
+              />
+            ))}
+          </View>
+        </Reanimated.View>
+      </View>
     </View>
   );
 }
+
+type KzoneFeedMenuOptionProps = {
+  active: boolean;
+  feed: KzoneFeedMode;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onSelect: (feed: KzoneFeedMode) => void;
+};
+
+const KzoneFeedMenuOption = React.memo(function KzoneFeedMenuOption({
+  active,
+  feed,
+  icon,
+  label,
+  onSelect,
+}: KzoneFeedMenuOptionProps) {
+  const iconScale = useSharedValue(1);
+
+  const iconAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: iconScale.value }],
+  }));
+
+  const handlePress = React.useCallback(() => {
+    iconScale.value = withSequence(
+      withTiming(0.9, ACTION_TIMING),
+      withSpring(1.14, ACTION_SPRING),
+      withTiming(1, ACTION_TIMING),
+    );
+    onSelect(feed);
+  }, [feed, iconScale, onSelect]);
+
+  return (
+    <Pressable
+      accessibilityLabel={`Abrir feed ${label}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.feedMenuOption,
+        active && styles.feedMenuOptionActive,
+        pressed && styles.feedMenuOptionPressed,
+      ]}
+    >
+      <Reanimated.View
+        style={[
+          styles.feedMenuOptionIcon,
+          active && styles.feedMenuOptionIconActive,
+          iconAnimatedStyle,
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={21}
+          color={active ? '#FFFFFF' : '#A6ADCE'}
+        />
+      </Reanimated.View>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.feedMenuOptionText,
+          active && styles.feedMenuOptionTextActive,
+        ]}
+      >
+        {label}
+      </Text>
+      {active ? (
+        <Ionicons name="checkmark-circle" size={15} color="#B9B3FF" />
+      ) : null}
+    </Pressable>
+  );
+});
+
+type KzoneHypeFiltersProps = {
+  activeFilter: KzoneHypeFilterId;
+  onSelect: (filter: KzoneHypeFilterId) => void;
+};
+
+const KzoneHypeFilters = React.memo(function KzoneHypeFilters({
+  activeFilter,
+  onSelect,
+}: KzoneHypeFiltersProps) {
+  return (
+    <View style={styles.hypeFiltersWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.hypeFiltersContent}
+      >
+        {KZONE_HYPE_FILTERS.map((filter) => (
+          <KzoneHypeFilter
+            key={filter.id}
+            active={filter.id === activeFilter}
+            filter={filter}
+            onSelect={onSelect}
+          />
+        ))}
+      </ScrollView>
+    </View>
+  );
+});
+
+type KzoneHypeFilterProps = {
+  active: boolean;
+  filter: (typeof KZONE_HYPE_FILTERS)[number];
+  onSelect: (filter: KzoneHypeFilterId) => void;
+};
+
+const KzoneHypeFilter = React.memo(function KzoneHypeFilter({
+  active,
+  filter,
+  onSelect,
+}: KzoneHypeFilterProps) {
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const rotate = useSharedValue(0);
+
+  const iconAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+    ],
+  }));
+
+  const handlePress = React.useCallback(() => {
+    if (filter.id === 'for-you') {
+      translateY.value = withSequence(
+        withTiming(-4, ACTION_TIMING),
+        withSpring(0, ACTION_SPRING),
+      );
+      scale.value = withSequence(
+        withTiming(0.9, ACTION_TIMING),
+        withSpring(1.16, ACTION_SPRING),
+        withTiming(1, ACTION_TIMING),
+      );
+    } else if (filter.id === 'esports') {
+      rotate.value = withSequence(
+        withTiming(-10, ACTION_TIMING),
+        withTiming(9, ACTION_TIMING),
+        withSpring(0, ACTION_SPRING),
+      );
+    } else if (filter.id === 'entertainment') {
+      scale.value = withSequence(
+        withTiming(0.88, ACTION_TIMING),
+        withSpring(1.2, ACTION_SPRING),
+        withTiming(1, ACTION_TIMING),
+      );
+    } else {
+      translateX.value = withSequence(
+        withTiming(3, ACTION_TIMING),
+        withSpring(0, ACTION_SPRING),
+      );
+      rotate.value = withSequence(
+        withTiming(-6, ACTION_TIMING),
+        withSpring(0, ACTION_SPRING),
+      );
+    }
+
+    onSelect(filter.id);
+  }, [filter.id, onSelect, rotate, scale, translateX, translateY]);
+
+  return (
+    <Pressable
+      accessibilityLabel={`Filtrar Hype por ${filter.label}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.hypeFilterPill,
+        active && styles.hypeFilterPillActive,
+        pressed && styles.hypeFilterPillPressed,
+      ]}
+    >
+      <Reanimated.View style={iconAnimatedStyle}>
+        <Ionicons
+          name={filter.icon}
+          size={17}
+          color={active ? '#FFFFFF' : '#8D95B6'}
+        />
+      </Reanimated.View>
+      <Text
+        style={[
+          styles.hypeFilterText,
+          active && styles.hypeFilterTextActive,
+        ]}
+      >
+        {filter.label}
+      </Text>
+    </Pressable>
+  );
+});
+
+type KzoneHypeItemProps = {
+  rank: number;
+  topic: KzoneHypeTopic;
+};
+
+const KzoneHypeItem = React.memo(function KzoneHypeItem({
+  rank,
+  topic,
+}: KzoneHypeItemProps) {
+  const isTop = rank === 1;
+
+  return (
+    <View style={[styles.hypeItem, isTop && styles.hypeItemTop]}>
+      <View style={[styles.hypeRank, isTop && styles.hypeRankTop]}>
+        <Text style={[styles.hypeRankText, isTop && styles.hypeRankTextTop]}>
+          {rank}
+        </Text>
+      </View>
+
+      <View style={styles.hypeItemContent}>
+        <View style={styles.hypeMetaRow}>
+          <View style={styles.hypeCategory}>
+            <Ionicons
+              name={topic.icon}
+              size={14}
+              color={isTop ? '#D9D6FF' : '#8D95B6'}
+            />
+            <Text
+              style={[
+                styles.hypeCategoryText,
+                isTop && styles.hypeCategoryTextTop,
+              ]}
+            >
+              {topic.categoryLabel}
+            </Text>
+          </View>
+          <View style={styles.hypeGrowth}>
+            <Ionicons name="trending-up" size={14} color="#55D6A2" />
+            <Text style={styles.hypeGrowthText}>+{topic.growth}%</Text>
+          </View>
+        </View>
+
+        <Text style={[styles.hypeTitle, isTop && styles.hypeTitleTop]}>
+          {topic.title}
+        </Text>
+        <Text style={styles.hypeDescription}>{topic.description}</Text>
+        <Text style={styles.hypeMentions}>
+          {formatKzoneCount(topic.mentions)} mencoes
+        </Text>
+      </View>
+    </View>
+  );
+});
 
 type KzonePostPreviewProps = {
   post: KzonePreviewPost;
@@ -628,6 +1176,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(166,173,206,0.14)',
+    zIndex: 5,
   },
   logoHandle: {
     flexDirection: 'row',
@@ -673,28 +1222,248 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0,
   },
-  backPill: {
+  feedSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 5,
     minHeight: 34,
     paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 10,
+    paddingHorizontal: 9,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(166,173,206,0.12)',
+    maxWidth: 118,
   },
-  backPillPressed: {
+  feedSelectorActive: {
+    backgroundColor: 'rgba(108,99,255,0.16)',
+    borderColor: 'rgba(185,179,255,0.36)',
+  },
+  feedSelectorPressed: {
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  backPillText: {
+  feedSelectorText: {
+    color: '#D9D6FF',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0,
+    flexShrink: 1,
+  },
+  feedMenuLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+  },
+  feedMenuBackdropLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  feedMenuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4,5,10,0.34)',
+  },
+  feedMenuPanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#121625',
+    borderWidth: 1,
+    borderColor: 'rgba(185,179,255,0.24)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    elevation: 14,
+  },
+  feedMenuGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  feedMenuOption: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 94,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(166,173,206,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.035)',
+  },
+  feedMenuOptionActive: {
+    borderColor: 'rgba(185,179,255,0.42)',
+    backgroundColor: 'rgba(108,99,255,0.18)',
+  },
+  feedMenuOptionPressed: {
+    backgroundColor: 'rgba(185,179,255,0.12)',
+  },
+  feedMenuOptionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(166,173,206,0.1)',
+  },
+  feedMenuOptionIconActive: {
+    backgroundColor: '#6C63FF',
+  },
+  feedMenuOptionText: {
     color: '#A6ADCE',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0,
+    textAlign: 'center',
+  },
+  feedMenuOptionTextActive: {
+    color: '#FFFFFF',
+  },
+  listContent: {
+    paddingBottom: 104,
+  },
+  hypeFiltersWrap: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(166,173,206,0.14)',
+    backgroundColor: '#090B14',
+  },
+  hypeFiltersContent: {
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  hypeFilterPill: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(166,173,206,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  hypeFilterPillActive: {
+    borderColor: 'rgba(185,179,255,0.48)',
+    backgroundColor: 'rgba(108,99,255,0.22)',
+  },
+  hypeFilterPillPressed: {
+    backgroundColor: 'rgba(185,179,255,0.13)',
+  },
+  hypeFilterText: {
+    color: '#8D95B6',
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0,
   },
-  listContent: {
-    paddingBottom: 104,
+  hypeFilterTextActive: {
+    color: '#FFFFFF',
+  },
+  hypeItem: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 17,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(166,173,206,0.14)',
+  },
+  hypeItemTop: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(185,179,255,0.32)',
+    borderRadius: 8,
+    backgroundColor: 'rgba(108,99,255,0.12)',
+  },
+  hypeRank: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(166,173,206,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(166,173,206,0.16)',
+  },
+  hypeRankTop: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#B9B3FF',
+  },
+  hypeRankText: {
+    color: '#A6ADCE',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  hypeRankTextTop: {
+    color: '#FFFFFF',
+  },
+  hypeItemContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hypeMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  hypeCategory: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  hypeCategoryText: {
+    color: '#8D95B6',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  hypeCategoryTextTop: {
+    color: '#D9D6FF',
+  },
+  hypeGrowth: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  hypeGrowthText: {
+    color: '#55D6A2',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  hypeTitle: {
+    color: '#F3F4FA',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '800',
+    letterSpacing: 0,
+    marginTop: 7,
+  },
+  hypeTitleTop: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  hypeDescription: {
+    color: '#A6ADCE',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+    letterSpacing: 0,
+    marginTop: 6,
+  },
+  hypeMentions: {
+    color: '#7D86A8',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0,
+    marginTop: 8,
   },
   post: {
     flexDirection: 'row',

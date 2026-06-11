@@ -1362,7 +1362,6 @@ export default function Home() {
         <KzonePlaceholder
           titlePan={kzoneTitlePan}
           topInset={insets.top}
-          onBack={goToKachan}
         />
       </Reanimated.View>
 
