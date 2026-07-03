@@ -14,6 +14,7 @@ import { FlashList } from '@shopify/flash-list';
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing as ReanimatedEasing,
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
@@ -42,14 +43,41 @@ const MENU_ANIMATION = {
   easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
 };
 
+const MENU_CLOSE_AFTER_SELECTION_MS = 220;
+const FEED_MENU_PANEL_WIDTH = Math.min(width - 32, 236);
+
 const KZONE_FEED_OPTIONS: Array<{
   id: KzoneFeedMode;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  activeColor: string;
+  glowColor: string;
 }> = [
-  { id: 'for-you', label: 'Para voce', icon: 'sparkles-outline' },
-  { id: 'hype', label: 'Hype', icon: 'flame-outline' },
-  { id: 'following', label: 'Seguindo', icon: 'people-outline' },
+  {
+    id: 'for-you',
+    label: 'Para Você',
+    icon: 'sparkles-outline',
+    activeIcon: 'sparkles',
+    activeColor: '#B9B3FF',
+    glowColor: 'rgba(108,99,255,0.2)',
+  },
+  {
+    id: 'hype',
+    label: 'Hype',
+    icon: 'flame-outline',
+    activeIcon: 'flame',
+    activeColor: '#FF5C8A',
+    glowColor: 'rgba(255,92,138,0.18)',
+  },
+  {
+    id: 'following',
+    label: 'Seguindo',
+    icon: 'people-outline',
+    activeIcon: 'people',
+    activeColor: '#5DE1C5',
+    glowColor: 'rgba(93,225,197,0.15)',
+  },
 ];
 
 const KZONE_HYPE_FILTERS: Array<{
@@ -369,6 +397,9 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
   const [activeHypeFilter, setActiveHypeFilter] =
     React.useState<KzoneHypeFilterId>('for-you');
   const [isFeedMenuOpen, setIsFeedMenuOpen] = React.useState(false);
+  const feedMenuCloseTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const menuProgress = useSharedValue(0);
 
   const renderPost = React.useCallback(
@@ -422,7 +453,7 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
   const activeFeedLabel = React.useMemo(
     () =>
       KZONE_FEED_OPTIONS.find((option) => option.id === activeFeed)?.label ??
-      'Para voce',
+      'Para Você',
     [activeFeed],
   );
 
@@ -442,15 +473,24 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
     transform: [{ rotate: `${menuProgress.value * 180}deg` }],
   }));
 
+  const clearFeedMenuCloseTimeout = React.useCallback(() => {
+    if (feedMenuCloseTimeoutRef.current) {
+      clearTimeout(feedMenuCloseTimeoutRef.current);
+      feedMenuCloseTimeoutRef.current = null;
+    }
+  }, []);
+
   const openFeedMenu = React.useCallback(() => {
+    clearFeedMenuCloseTimeout();
     setIsFeedMenuOpen(true);
     menuProgress.value = withTiming(1, MENU_ANIMATION);
-  }, [menuProgress]);
+  }, [clearFeedMenuCloseTimeout, menuProgress]);
 
   const closeFeedMenu = React.useCallback(() => {
+    clearFeedMenuCloseTimeout();
     menuProgress.value = withTiming(0, MENU_ANIMATION);
     setIsFeedMenuOpen(false);
-  }, [menuProgress]);
+  }, [clearFeedMenuCloseTimeout, menuProgress]);
 
   const toggleFeedMenu = React.useCallback(() => {
     if (isFeedMenuOpen) {
@@ -462,10 +502,13 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
 
   const handleFeedSelect = React.useCallback(
     (feed: KzoneFeedMode) => {
+      clearFeedMenuCloseTimeout();
       setActiveFeed(feed);
-      closeFeedMenu();
+      feedMenuCloseTimeoutRef.current = setTimeout(() => {
+        closeFeedMenu();
+      }, MENU_CLOSE_AFTER_SELECTION_MS);
     },
-    [closeFeedMenu],
+    [clearFeedMenuCloseTimeout, closeFeedMenu],
   );
 
   const handleHypeFilterSelect = React.useCallback(
@@ -490,6 +533,13 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
 
     return () => subscription.remove();
   }, [closeFeedMenu, isFeedMenuOpen]);
+
+  React.useEffect(
+    () => () => {
+      clearFeedMenuCloseTimeout();
+    },
+    [clearFeedMenuCloseTimeout],
+  );
 
   return (
     <View style={styles.page}>
@@ -595,7 +645,10 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
               <KzoneFeedMenuOption
                 key={option.id}
                 active={option.id === activeFeed}
+                activeColor={option.activeColor}
+                activeIcon={option.activeIcon}
                 feed={option.id}
+                glowColor={option.glowColor}
                 icon={option.icon}
                 label={option.label}
                 onSelect={handleFeedSelect}
@@ -610,7 +663,10 @@ function KzonePlaceholder({ titlePan, topInset }: KzonePlaceholderProps) {
 
 type KzoneFeedMenuOptionProps = {
   active: boolean;
+  activeColor: string;
+  activeIcon: keyof typeof Ionicons.glyphMap;
   feed: KzoneFeedMode;
+  glowColor: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onSelect: (feed: KzoneFeedMode) => void;
@@ -618,25 +674,124 @@ type KzoneFeedMenuOptionProps = {
 
 const KzoneFeedMenuOption = React.memo(function KzoneFeedMenuOption({
   active,
+  activeColor,
+  activeIcon,
   feed,
+  glowColor,
   icon,
   label,
   onSelect,
 }: KzoneFeedMenuOptionProps) {
   const iconScale = useSharedValue(1);
+  const iconRotation = useSharedValue(0);
+  const iconTranslateX = useSharedValue(0);
+  const iconTranslateY = useSharedValue(0);
+  const selectionProgress = useSharedValue(active ? 1 : 0);
+
+  React.useEffect(() => {
+    selectionProgress.value = withTiming(active ? 1 : 0, {
+      duration: 180,
+      easing: ReanimatedEasing.out(ReanimatedEasing.quad),
+    });
+  }, [active, selectionProgress]);
 
   const iconAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: iconScale.value }],
+    backgroundColor: interpolateColor(
+      selectionProgress.value,
+      [0, 1],
+      ['rgba(166,173,206,0.1)', glowColor],
+    ),
+    borderColor: interpolateColor(
+      selectionProgress.value,
+      [0, 1],
+      ['rgba(166,173,206,0.14)', activeColor],
+    ),
+    transform: [
+      { translateX: iconTranslateX.value },
+      { translateY: iconTranslateY.value },
+      { scale: iconScale.value },
+      { rotate: `${iconRotation.value}deg` },
+    ],
+  }));
+
+  const optionAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      selectionProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.035)', glowColor],
+    ),
+    borderColor: interpolateColor(
+      selectionProgress.value,
+      [0, 1],
+      ['rgba(166,173,206,0.12)', activeColor],
+    ),
+  }));
+
+  const inactiveIconAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: 1 - selectionProgress.value,
+    transform: [{ scale: 1 - selectionProgress.value * 0.12 }],
+  }));
+
+  const activeIconAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: selectionProgress.value,
+    transform: [{ scale: 0.82 + selectionProgress.value * 0.18 }],
+  }));
+
+  const checkAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: selectionProgress.value,
+    transform: [{ scale: 0.78 + selectionProgress.value * 0.22 }],
   }));
 
   const handlePress = React.useCallback(() => {
-    iconScale.value = withSequence(
-      withTiming(0.9, ACTION_TIMING),
-      withSpring(1.14, ACTION_SPRING),
-      withTiming(1, ACTION_TIMING),
-    );
+    if (feed === 'hype') {
+      iconScale.value = withSequence(
+        withTiming(0.9, ACTION_TIMING),
+        withSpring(1.2, ACTION_SPRING),
+        withTiming(1, ACTION_TIMING),
+      );
+      iconTranslateY.value = withSequence(
+        withTiming(-4, ACTION_TIMING),
+        withSpring(1, ACTION_SPRING),
+        withTiming(0, ACTION_TIMING),
+      );
+      iconRotation.value = withSequence(
+        withTiming(-5, ACTION_TIMING),
+        withTiming(4, ACTION_TIMING),
+        withTiming(0, ACTION_TIMING),
+      );
+    } else if (feed === 'for-you') {
+      iconScale.value = withSequence(
+        withTiming(0.9, ACTION_TIMING),
+        withSpring(1.16, ACTION_SPRING),
+        withTiming(1, ACTION_TIMING),
+      );
+      iconRotation.value = withSequence(
+        withTiming(-10, ACTION_TIMING),
+        withTiming(8, ACTION_TIMING),
+        withTiming(0, ACTION_TIMING),
+      );
+    } else {
+      iconScale.value = withSequence(
+        withTiming(0.94, ACTION_TIMING),
+        withSpring(1.1, ACTION_SPRING),
+        withTiming(1, ACTION_TIMING),
+      );
+      iconTranslateX.value = withSequence(
+        withTiming(-3, ACTION_TIMING),
+        withTiming(3, ACTION_TIMING),
+        withTiming(0, ACTION_TIMING),
+      );
+    }
+
     onSelect(feed);
-  }, [feed, iconScale, onSelect]);
+  }, [
+    feed,
+    iconRotation,
+    iconScale,
+    iconTranslateX,
+    iconTranslateY,
+    onSelect,
+  ]);
 
   return (
     <Pressable
@@ -645,36 +800,52 @@ const KzoneFeedMenuOption = React.memo(function KzoneFeedMenuOption({
       accessibilityState={{ selected: active }}
       onPress={handlePress}
       style={({ pressed }) => [
-        styles.feedMenuOption,
-        active && styles.feedMenuOptionActive,
-        pressed && styles.feedMenuOptionPressed,
+        styles.feedMenuOptionTouch,
+        pressed && styles.feedMenuOptionTouchPressed,
       ]}
     >
       <Reanimated.View
-        style={[
-          styles.feedMenuOptionIcon,
-          active && styles.feedMenuOptionIconActive,
-          iconAnimatedStyle,
-        ]}
+        style={[styles.feedMenuOption, optionAnimatedStyle]}
       >
-        <Ionicons
-          name={icon}
-          size={21}
-          color={active ? '#FFFFFF' : '#A6ADCE'}
-        />
+        <Reanimated.View
+          style={[styles.feedMenuOptionIcon, iconAnimatedStyle]}
+        >
+          <Reanimated.View
+            style={[
+              styles.feedMenuOptionIconLayer,
+              inactiveIconAnimatedStyle,
+            ]}
+          >
+            <Ionicons name={icon} size={21} color="#A6ADCE" />
+          </Reanimated.View>
+          <Reanimated.View
+            style={[
+              styles.feedMenuOptionIconLayer,
+              activeIconAnimatedStyle,
+            ]}
+          >
+            <Ionicons name={activeIcon} size={21} color={activeColor} />
+          </Reanimated.View>
+        </Reanimated.View>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.feedMenuOptionText,
+            active && styles.feedMenuOptionTextActive,
+          ]}
+        >
+          {label}
+        </Text>
+        <View style={styles.feedMenuCheckSlot}>
+          <Reanimated.View style={checkAnimatedStyle}>
+            <Ionicons
+              name="checkmark-circle"
+              size={16}
+              color={activeColor}
+            />
+          </Reanimated.View>
+        </View>
       </Reanimated.View>
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.feedMenuOptionText,
-          active && styles.feedMenuOptionTextActive,
-        ]}
-      >
-        {label}
-      </Text>
-      {active ? (
-        <Ionicons name="checkmark-circle" size={15} color="#B9B3FF" />
-      ) : null}
     </Pressable>
   );
 });
@@ -1262,10 +1433,10 @@ const styles = StyleSheet.create({
   },
   feedMenuPanel: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    padding: 10,
-    borderRadius: 8,
+    right: 14,
+    width: FEED_MENU_PANEL_WIDTH,
+    padding: 8,
+    borderRadius: 24,
     backgroundColor: '#121625',
     borderWidth: 1,
     borderColor: 'rgba(185,179,255,0.24)',
@@ -1276,50 +1447,58 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   feedMenuGrid: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
   },
+  feedMenuOptionTouch: {
+    borderRadius: 999,
+  },
+  feedMenuOptionTouchPressed: {
+    opacity: 0.92,
+  },
   feedMenuOption: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 94,
+    minHeight: 54,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    paddingHorizontal: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
+    justifyContent: 'flex-start',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: 'rgba(166,173,206,0.12)',
     backgroundColor: 'rgba(255,255,255,0.035)',
   },
-  feedMenuOptionActive: {
-    borderColor: 'rgba(185,179,255,0.42)',
-    backgroundColor: 'rgba(108,99,255,0.18)',
-  },
-  feedMenuOptionPressed: {
-    backgroundColor: 'rgba(185,179,255,0.12)',
-  },
   feedMenuOptionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(166,173,206,0.14)',
     backgroundColor: 'rgba(166,173,206,0.1)',
   },
-  feedMenuOptionIconActive: {
-    backgroundColor: '#6C63FF',
+  feedMenuOptionIconLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   feedMenuOptionText: {
     color: '#A6ADCE',
-    fontSize: 12,
+    flex: 1,
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0,
-    textAlign: 'center',
   },
   feedMenuOptionTextActive: {
     color: '#FFFFFF',
+  },
+  feedMenuCheckSlot: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   listContent: {
     paddingBottom: 104,
