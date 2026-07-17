@@ -4,6 +4,5 @@ export type {
   SharePostMediaType,
   SharePostPreview,
   ShareTarget,
-  ShareTargetSection,
   ShareTargetType,
 } from '@/features/share/domain/entities/share';

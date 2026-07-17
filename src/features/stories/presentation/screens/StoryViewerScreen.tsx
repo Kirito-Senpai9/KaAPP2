@@ -20,7 +20,14 @@ import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  Gesture,
+  GestureDetector,
+  type PanGesture,
+} from 'react-native-gesture-handler';
+import Carousel, {
+  type ICarouselInstance,
+} from 'react-native-reanimated-carousel';
 import Reanimated, {
   Easing as ReanimatedEasing,
   interpolate,
@@ -35,6 +42,7 @@ import Reanimated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import { createCachedVideoSource } from '@/shared/constants/demoMedia';
+import type { Story as StoryUser } from '@/features/stories/domain/entities/story';
 import BottomSheetStoryPrivacy from '@/features/stories/presentation/BottomSheetStoryPrivacy';
 import BottomSheetStoryViewers from '@/features/stories/presentation/BottomSheetStoryViewers';
 import { useStories } from '@/features/stories/presentation/hooks/useStories';
@@ -51,6 +59,14 @@ const MENU_ENTER_DURATION = 210;
 const MENU_EXIT_DURATION = 130;
 const MENU_EASE_OUT = ReanimatedEasing.bezier(0.2, 0.9, 0.18, 1);
 
+function clampIndex(value: number, length: number) {
+  if (length <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max(value, 0), length - 1);
+}
+
 export default function StoryViewer({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -61,10 +77,78 @@ export default function StoryViewer({ route, navigation }: Props) {
   } = route.params;
   const liveUsers = useStories(true);
   const storiesRepository = useMemo(() => getStoriesRepository(), []);
-  const users = liveUsers.length > 0 ? liveUsers : initialUsers;
+  const initialUserId =
+    initialUsers[initialUserIndex]?.id ?? initialUsers[0]?.id ?? null;
+  const initialStoryId =
+    initialUsers[initialUserIndex]?.stories[initialStoryIndex]?.id ?? null;
+  const isStoryPreviewable = useCallback(
+    (story: StoryUser['stories'][number] | undefined | null) => {
+      if (!story) {
+        return false;
+      }
 
-  const [currentUserIndex, setCurrentUserIndex] = useState(initialUserIndex);
-  const [currentStoryIndex, setCurrentStoryIndex] = useState(initialStoryIndex);
+      if (story.type === 'image') {
+        return !!story.uri;
+      }
+
+      return !!(story.thumbnail || story.uri);
+    },
+    []
+  );
+  const getPreviewableStories = useCallback(
+    (storyUser: StoryUser | undefined | null) =>
+      storyUser?.stories.filter(isStoryPreviewable) ?? [],
+    [isStoryPreviewable]
+  );
+  const getPreviewableStory = useCallback(
+    (storyUser: StoryUser | undefined | null) =>
+      getPreviewableStories(storyUser)[0],
+    [getPreviewableStories]
+  );
+  const initialUsersWithPreview = useMemo(
+    () =>
+      initialUsers.filter(
+        (storyUser) => getPreviewableStories(storyUser).length > 0
+      ),
+    [getPreviewableStories, initialUsers]
+  );
+  const liveUsersWithPreview = useMemo(
+    () =>
+      liveUsers.filter((storyUser) => getPreviewableStories(storyUser).length > 0),
+    [getPreviewableStories, liveUsers]
+  );
+  const users =
+    liveUsersWithPreview.length > 0
+      ? liveUsersWithPreview
+      : initialUsersWithPreview;
+  const resolvedInitialUserIndex = useMemo(() => {
+    const indexById = initialUserId
+      ? users.findIndex((storyUser) => storyUser.id === initialUserId)
+      : -1;
+
+    return indexById >= 0 ? indexById : 0;
+  }, [initialUserId, users]);
+  const resolvedInitialStoryIndex = useMemo(() => {
+    const initialUser = users[resolvedInitialUserIndex];
+    const previewableStories = getPreviewableStories(initialUser);
+    const indexById = initialStoryId
+      ? previewableStories.findIndex((story) => story.id === initialStoryId)
+      : -1;
+
+    return indexById >= 0 ? indexById : 0;
+  }, [
+    getPreviewableStories,
+    initialStoryId,
+    resolvedInitialUserIndex,
+    users,
+  ]);
+
+  const [currentUserIndex, setCurrentUserIndex] = useState(
+    resolvedInitialUserIndex
+  );
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(
+    resolvedInitialStoryIndex
+  );
   const [input, setInput] = useState('');
   const [isMuted, setIsMuted] = useState(false);
   const [emojiFx, setEmojiFx] = useState<string | null>(null);
@@ -74,6 +158,7 @@ export default function StoryViewer({ route, navigation }: Props) {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [hasVideoError, setHasVideoError] = useState(false);
   const [isPressPaused, setIsPressPaused] = useState(false);
+  const [isUserTransitioning, setIsUserTransitioning] = useState(false);
   const [likedStories, setLikedStories] = useState<Record<string, boolean>>({});
   const [isPrivacySheetVisible, setIsPrivacySheetVisible] = useState(false);
   const [isViewersSheetVisible, setIsViewersSheetVisible] = useState(false);
@@ -83,14 +168,15 @@ export default function StoryViewer({ route, navigation }: Props) {
 
   const progress = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
-  const userSlideX = useRef(new Animated.Value(0)).current;
-  const userOpacity = useRef(new Animated.Value(1)).current;
   const emojiInsertAnim = useRef(new Animated.Value(0)).current;
-  const previousUserIndexRef = useRef(initialUserIndex);
+  const carouselRef = useRef<ICarouselInstance>(null);
+  const pendingStoryIndexRef = useRef<number | null>(null);
   const storyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyStartAtRef = useRef<number>(0);
   const storyRemainingRef = useRef<number>(IMAGE_DURATION_MS);
   const videoSourceKeyRef = useRef<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(initialUserId);
+  const currentStoryIdRef = useRef<string | null>(initialStoryId);
   const menuBtnRef = useRef<React.ElementRef<typeof TouchableOpacity>>(null);
   const likeBurstScale = useSharedValue(0.6);
   const likeBurstOpacity = useSharedValue(0);
@@ -102,18 +188,33 @@ export default function StoryViewer({ route, navigation }: Props) {
     player.timeUpdateEventInterval = 0.25;
   });
 
-  const currentUser = users[currentUserIndex];
-  const currentStories = currentUser?.stories ?? [];
-  const currentStory = currentStories[currentStoryIndex];
+  const resolvedCurrentUserIndex = clampIndex(currentUserIndex, users.length);
+  const currentUser = users[resolvedCurrentUserIndex];
+  const currentStories = useMemo(
+    () => getPreviewableStories(currentUser),
+    [currentUser, getPreviewableStories]
+  );
+  const resolvedCurrentStoryIndex = clampIndex(
+    currentStoryIndex,
+    currentStories.length
+  );
+  const currentStory = currentStories[resolvedCurrentStoryIndex];
   const isOwnStory = !!currentUser?.isOwnStory;
   const canMessageCurrentStory = !isOwnStory;
   const isPaused =
     isPressPaused ||
+    isUserTransitioning ||
     isInputFocused ||
     isPrivacySheetVisible ||
     isViewersSheetVisible ||
     isStoryShareVisible ||
     isOptionsMenuVisible;
+  const isCarouselGestureEnabled =
+    !isInputFocused &&
+    !isPrivacySheetVisible &&
+    !isViewersSheetVisible &&
+    !isStoryShareVisible &&
+    !isOptionsMenuVisible;
   const isCurrentStoryLiked = currentStory
     ? !!likedStories[currentStory.id]
     : false;
@@ -141,6 +242,62 @@ export default function StoryViewer({ route, navigation }: Props) {
         : null,
     [currentStory?.id, currentStory?.type, currentStory?.uri]
   );
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      currentUserIdRef.current = currentUser.id;
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (currentStory?.id) {
+      currentStoryIdRef.current = currentStory.id;
+    }
+  }, [currentStory?.id]);
+
+  useEffect(() => {
+    if (users.length === 0) {
+      navigation.goBack();
+      return;
+    }
+
+    const targetUserId = currentUserIdRef.current ?? initialUserId;
+    const nextUserIndexById = targetUserId
+      ? users.findIndex((storyUser) => storyUser.id === targetUserId)
+      : -1;
+    const nextUserIndex =
+      nextUserIndexById >= 0
+        ? nextUserIndexById
+        : clampIndex(currentUserIndex, users.length);
+
+    if (nextUserIndex !== currentUserIndex) {
+      pendingStoryIndexRef.current = null;
+      setCurrentUserIndex(nextUserIndex);
+      return;
+    }
+
+    const nextStories = getPreviewableStories(users[nextUserIndex]);
+    const targetStoryId = currentStoryIdRef.current ?? initialStoryId;
+    const nextStoryIndexById = targetStoryId
+      ? nextStories.findIndex((story) => story.id === targetStoryId)
+      : -1;
+    const nextStoryIndex =
+      nextStoryIndexById >= 0
+        ? nextStoryIndexById
+        : clampIndex(currentStoryIndex, nextStories.length);
+
+    if (nextStoryIndex !== currentStoryIndex) {
+      setCurrentStoryIndex(nextStoryIndex);
+    }
+  }, [
+    currentStoryIndex,
+    currentUserIndex,
+    getPreviewableStories,
+    initialStoryId,
+    initialUserId,
+    navigation,
+    users,
+  ]);
 
   const clearStoryTimer = useCallback(() => {
     if (storyTimerRef.current) {
@@ -234,82 +391,146 @@ export default function StoryViewer({ route, navigation }: Props) {
     );
   }, []);
 
+  const scrollToUser = useCallback(
+    (targetUserIndex: number, targetStoryIndex = 0) => {
+      const lastUserIndex = users.length - 1;
+      if (lastUserIndex < 0) {
+        return;
+      }
+
+      const nextUserIndex = Math.min(
+        Math.max(targetUserIndex, 0),
+        lastUserIndex
+      );
+      const nextStoriesCount = getPreviewableStories(users[nextUserIndex]).length;
+      const nextStoryIndex = Math.min(
+        Math.max(targetStoryIndex, 0),
+        Math.max(nextStoriesCount - 1, 0)
+      );
+
+      if (nextUserIndex === resolvedCurrentUserIndex) {
+        pendingStoryIndexRef.current = null;
+        setCurrentStoryIndex(nextStoryIndex);
+        setIsUserTransitioning(false);
+        return;
+      }
+
+      pendingStoryIndexRef.current = nextStoryIndex;
+      setIsUserTransitioning(true);
+
+      if (!carouselRef.current) {
+        pendingStoryIndexRef.current = null;
+        setCurrentUserIndex(nextUserIndex);
+        setCurrentStoryIndex(nextStoryIndex);
+        setIsUserTransitioning(false);
+        return;
+      }
+
+      carouselRef.current.scrollTo({
+        index: nextUserIndex,
+        animated: true,
+      });
+    },
+    [getPreviewableStories, resolvedCurrentUserIndex, users]
+  );
+
+  const handleUserCarouselStart = useCallback(() => {
+    setIsUserTransitioning(true);
+  }, []);
+
+  const handleUserCarouselEnd = useCallback(() => {
+    setIsUserTransitioning(false);
+  }, []);
+
+  const handleUserSnap = useCallback(
+    (nextUserIndex: number) => {
+      const nextUser = users[nextUserIndex];
+      if (!nextUser) {
+        pendingStoryIndexRef.current = null;
+        setIsUserTransitioning(false);
+        return;
+      }
+
+      const pendingStoryIndex = pendingStoryIndexRef.current;
+      if (
+        nextUserIndex === resolvedCurrentUserIndex &&
+        pendingStoryIndex === null
+      ) {
+        setIsUserTransitioning(false);
+        return;
+      }
+
+      const nextStories = getPreviewableStories(nextUser);
+      const nextStoryIndex = Math.min(
+        Math.max(pendingStoryIndex ?? 0, 0),
+        Math.max(nextStories.length - 1, 0)
+      );
+
+      pendingStoryIndexRef.current = null;
+      setCurrentUserIndex(nextUserIndex);
+      setCurrentStoryIndex(nextStoryIndex);
+      setIsUserTransitioning(false);
+    },
+    [getPreviewableStories, resolvedCurrentUserIndex, users]
+  );
+
+  const configurePanGesture = useCallback(
+    (panGesture: PanGesture) => {
+      const isFirst = resolvedCurrentUserIndex <= 0;
+      const isLast = resolvedCurrentUserIndex >= users.length - 1;
+      // Threshold inatingivel => o arrasto nunca ativa naquela direcao,
+      // entao nao ha overscroll/rubber-band revelando o fundo nas pontas.
+      const EDGE_BLOCK = 100000;
+      const activeLeft = isLast ? -EDGE_BLOCK : -40; // bloqueia avancar no ultimo
+      const activeRight = isFirst ? EDGE_BLOCK : 40; // bloqueia voltar no primeiro
+      panGesture.activeOffsetX([activeLeft, activeRight]).failOffsetY([-28, 28]);
+    },
+    [resolvedCurrentUserIndex, users.length]
+  );
+
   const goNext = useCallback(() => {
-    const isLastStoryFromUser = currentStoryIndex >= currentStories.length - 1;
+    const isLastStoryFromUser =
+      resolvedCurrentStoryIndex >= currentStories.length - 1;
     if (!isLastStoryFromUser) {
       setCurrentStoryIndex((value) => value + 1);
       return;
     }
 
-    if (currentUserIndex < users.length - 1) {
-      setCurrentUserIndex((value) => value + 1);
-      setCurrentStoryIndex(0);
+    if (resolvedCurrentUserIndex < users.length - 1) {
+      scrollToUser(resolvedCurrentUserIndex + 1, 0);
       return;
     }
 
     navigation.goBack();
   }, [
     currentStories.length,
-    currentStoryIndex,
-    currentUserIndex,
     navigation,
+    resolvedCurrentStoryIndex,
+    resolvedCurrentUserIndex,
+    scrollToUser,
     users.length,
   ]);
 
   const goPrevious = useCallback(() => {
-    if (currentStoryIndex > 0) {
+    if (resolvedCurrentStoryIndex > 0) {
       setCurrentStoryIndex((value) => value - 1);
       return;
     }
 
-    if (currentUserIndex > 0) {
-      const previousUserIndex = currentUserIndex - 1;
-      const previousStoriesCount = users[previousUserIndex]?.stories.length ?? 1;
-      setCurrentUserIndex(previousUserIndex);
-      setCurrentStoryIndex(Math.max(previousStoriesCount - 1, 0));
+    if (resolvedCurrentUserIndex > 0) {
+      const previousUserIndex = resolvedCurrentUserIndex - 1;
+      const previousStoriesCount = getPreviewableStories(
+        users[previousUserIndex]
+      ).length;
+      scrollToUser(previousUserIndex, Math.max(previousStoriesCount - 1, 0));
     }
-  }, [currentStoryIndex, currentUserIndex, users]);
-
-  const goNextUser = useCallback(() => {
-    if (currentUserIndex < users.length - 1) {
-      setCurrentUserIndex((value) => value + 1);
-      setCurrentStoryIndex(0);
-      return;
-    }
-
-    navigation.goBack();
-  }, [currentUserIndex, navigation, users.length]);
-
-  const goPreviousUser = useCallback(() => {
-    if (currentUserIndex > 0) {
-      const previousUserIndex = currentUserIndex - 1;
-      setCurrentUserIndex(previousUserIndex);
-      setCurrentStoryIndex(0);
-    }
-  }, [currentUserIndex]);
-
-  const runUserTransition = useCallback(
-    (direction: 'next' | 'previous') => {
-      userSlideX.stopAnimation();
-      userOpacity.stopAnimation();
-      userSlideX.setValue(direction === 'next' ? 28 : -28);
-      userOpacity.setValue(0.7);
-
-      Animated.parallel([
-        Animated.timing(userSlideX, {
-          toValue: 0,
-          duration: 280,
-          useNativeDriver: true,
-        }),
-        Animated.timing(userOpacity, {
-          toValue: 1,
-          duration: 280,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    },
-    [userOpacity, userSlideX]
-  );
+  }, [
+    getPreviewableStories,
+    resolvedCurrentStoryIndex,
+    resolvedCurrentUserIndex,
+    scrollToUser,
+    users,
+  ]);
 
   const startImageProgress = useCallback(
     (durationMs: number) => {
@@ -359,8 +580,7 @@ export default function StoryViewer({ route, navigation }: Props) {
   }, [clearStoryTimer, goNext, progress]);
 
   useEffect(() => {
-    if (!currentStory) {
-      navigation.goBack();
+    if (!currentStory || !currentUser) {
       return;
     }
 
@@ -439,9 +659,9 @@ export default function StoryViewer({ route, navigation }: Props) {
     clearStoryTimer,
     contentFade,
     currentStory,
+    currentUser,
     isMuted,
     isPaused,
-    navigation,
     currentVideoSource,
     progress,
     startImageProgress,
@@ -451,11 +671,11 @@ export default function StoryViewer({ route, navigation }: Props) {
   useEffect(() => {
     if (!currentStory) return;
 
-    const nextStory = currentStories[currentStoryIndex + 1];
+    const nextStory = currentStories[resolvedCurrentStoryIndex + 1];
     if (nextStory?.type === 'image') {
       void Image.prefetch(nextStory.uri);
     }
-  }, [currentStories, currentStory, currentStoryIndex]);
+  }, [currentStories, currentStory, resolvedCurrentStoryIndex]);
 
   useEffect(() => () => clearStoryTimer(), [clearStoryTimer]);
 
@@ -541,15 +761,6 @@ export default function StoryViewer({ route, navigation }: Props) {
       videoPlayer.play();
     }
   }, [currentStory?.id, currentStory?.type, hasVideoError, isPaused, isVideoReady, videoPlayer]);
-
-  useEffect(() => {
-    if (currentUserIndex === previousUserIndexRef.current) return;
-
-    const direction =
-      currentUserIndex > previousUserIndexRef.current ? 'next' : 'previous';
-    runUserTransition(direction);
-    previousUserIndexRef.current = currentUserIndex;
-  }, [currentUserIndex, runUserTransition]);
 
   useEffect(() => {
     const showEvent =
@@ -680,7 +891,10 @@ export default function StoryViewer({ route, navigation }: Props) {
             }
 
             setCurrentStoryIndex((currentIndexValue) =>
-              Math.min(currentIndexValue, remainingOwnStories.stories.length - 1)
+              Math.min(
+                currentIndexValue,
+                getPreviewableStories(remainingOwnStories).length - 1
+              )
             );
           },
         },
@@ -758,20 +972,6 @@ export default function StoryViewer({ route, navigation }: Props) {
         runOnJS(toggleStoryLike)(true);
       });
 
-    const horizontalPanGesture = Gesture.Pan()
-      .activeOffsetX([-40, 40])
-      .failOffsetY([-28, 28])
-      .onEnd((event) => {
-        if (event.translationX <= -55) {
-          runOnJS(goNextUser)();
-          return;
-        }
-
-        if (event.translationX >= 55) {
-          runOnJS(goPreviousUser)();
-        }
-      });
-
     const longPressGesture = Gesture.LongPress()
       .minDuration(160)
       .maxDistance(16)
@@ -784,18 +984,72 @@ export default function StoryViewer({ route, navigation }: Props) {
 
     return Gesture.Simultaneous(
       Gesture.Exclusive(doubleTapGesture, singleTapGesture),
-      horizontalPanGesture,
       longPressGesture
     );
   }, [
     goNext,
-    goNextUser,
     goPrevious,
-    goPreviousUser,
     currentUser?.isOwnStory,
     setStoryPressPaused,
     toggleStoryLike,
   ]);
+
+  const renderInactiveStoryPreview = useCallback(
+    (storyUser: StoryUser) => {
+      const previewStory = getPreviewableStory(storyUser);
+      const previewStories = getPreviewableStories(storyUser);
+
+      if (!previewStory) {
+        return <View pointerEvents="none" style={styles.contentLayer} />;
+      }
+
+      const previewUri =
+        previewStory.type === 'video'
+          ? previewStory.thumbnail ?? previewStory.uri
+          : previewStory.uri;
+
+      if (!previewUri) {
+        return <View pointerEvents="none" style={styles.contentLayer} />;
+      }
+
+      return (
+        <View pointerEvents="none" style={styles.contentLayer}>
+          <Image
+            source={{ uri: previewUri }}
+            style={styles.media}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={previewUri}
+          />
+
+          <View style={styles.overlayTop}>
+            <View style={styles.progressRow}>
+              {previewStories.map((story) => (
+                <View key={story.id} style={styles.segmentTrack} />
+              ))}
+            </View>
+
+            <View style={styles.header}>
+              <View style={styles.userInfo}>
+                <Image
+                  source={{ uri: storyUser.avatar }}
+                  style={styles.avatar}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={storyUser.avatar}
+                />
+                <View style={styles.userMeta}>
+                  <Text style={styles.userName}>{storyUser.name}</Text>
+                  <Text style={styles.userTime}>{previewStory.postedAt}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      );
+    },
+    [getPreviewableStories, getPreviewableStory]
+  );
 
   if (!currentStory || !currentUser) {
     return null;
@@ -808,12 +1062,39 @@ export default function StoryViewer({ route, navigation }: Props) {
         style={StyleSheet.absoluteFill}
       />
 
+      <Carousel
+        ref={carouselRef}
+        data={users}
+        width={SCREEN_WIDTH}
+        containerStyle={styles.userCarousel}
+        style={styles.userCarousel}
+        defaultIndex={resolvedInitialUserIndex}
+        loop={false}
+        autoFillData={false}
+        pagingEnabled
+        snapEnabled
+        overscrollEnabled={false}
+        enabled={isCarouselGestureEnabled && users.length > 1}
+        windowSize={3}
+        scrollAnimationDuration={320}
+        minScrollDistancePerSwipe={55}
+        maxScrollDistancePerSwipe={SCREEN_WIDTH}
+        onConfigurePanGesture={configurePanGesture}
+        onScrollStart={handleUserCarouselStart}
+        onScrollEnd={handleUserCarouselEnd}
+        onSnapToItem={handleUserSnap}
+        renderItem={({ item, index }) => {
+          if (index !== resolvedCurrentUserIndex) {
+            return renderInactiveStoryPreview(item);
+          }
+
+          return (
       <Animated.View
+        pointerEvents="auto"
         style={[
           styles.contentLayer,
           {
-            opacity: Animated.multiply(contentFade, userOpacity),
-            transform: [{ translateX: userSlideX }],
+            opacity: contentFade,
           },
         ]}
       >
@@ -867,8 +1148,8 @@ export default function StoryViewer({ route, navigation }: Props) {
         <View style={styles.overlayTop}>
           <View style={styles.progressRow}>
             {currentStories.map((story, index) => {
-              const filled = index < currentStoryIndex;
-              const active = index === currentStoryIndex;
+              const filled = index < resolvedCurrentStoryIndex;
+              const active = index === resolvedCurrentStoryIndex;
               const widthInterpolate = progress.interpolate({
                 inputRange: [0, 1],
                 outputRange: ['0%', '100%'],
@@ -943,8 +1224,31 @@ export default function StoryViewer({ route, navigation }: Props) {
         </View>
 
         {canMessageCurrentStory && (
-          <View style={[styles.bottomArea, { bottom: 12 + keyboardOffset }]}>
-            <BlurView intensity={45} tint="dark" style={styles.interactionBar}>
+          <View style={[styles.bottomArea, { bottom: keyboardOffset }]}>
+            {isInputFocused && (
+              <View style={styles.reactionRow}>
+                <View style={styles.suggestionWrap}>
+                  {REACTIONS.map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      onPress={() => showReactionFx(emoji)}
+                      style={styles.reactionBtn}
+                    >
+                      <Text style={styles.reactionText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <BlurView
+              intensity={45}
+              tint="dark"
+              style={[
+                styles.interactionBar,
+                { paddingBottom: Math.max(insets.bottom, 10) },
+              ]}
+            >
               {emojiInsertFx && (
                 <Animated.View
                   pointerEvents="none"
@@ -975,15 +1279,18 @@ export default function StoryViewer({ route, navigation }: Props) {
                   <Text style={styles.emojiInsertText}>{emojiInsertFx}</Text>
                 </Animated.View>
               )}
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                placeholder="Enviar mensagem..."
-                placeholderTextColor="#AEB2C8"
-                style={styles.input}
-              />
+
+              <View style={styles.messageField}>
+                <TextInput
+                  value={input}
+                  onChangeText={setInput}
+                  onFocus={() => setIsInputFocused(true)}
+                  onBlur={() => setIsInputFocused(false)}
+                  placeholder="Enviar mensagem..."
+                  placeholderTextColor="#AEB2C8"
+                  style={styles.input}
+                />
+              </View>
               <Reanimated.View style={heartButtonStyle}>
                 <TouchableOpacity
                   style={styles.heartBtn}
@@ -1004,28 +1311,19 @@ export default function StoryViewer({ route, navigation }: Props) {
                 <Ionicons name="paper-plane" size={18} color="#fff" />
               </TouchableOpacity>
             </BlurView>
-
-            {isInputFocused && (
-              <View style={styles.reactionRow}>
-                <View style={styles.suggestionWrap}>
-                  {REACTIONS.map((emoji) => (
-                    <TouchableOpacity
-                      key={emoji}
-                      onPress={() => showReactionFx(emoji)}
-                      style={styles.reactionBtn}
-                    >
-                      <Text style={styles.reactionText}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
           </View>
         )}
 
         {isOwnStory && (
           <View style={styles.bottomArea}>
-            <BlurView intensity={45} tint="dark" style={styles.ownStoryDock}>
+            <BlurView
+              intensity={45}
+              tint="dark"
+              style={[
+                styles.ownStoryDock,
+                { paddingBottom: Math.max(insets.bottom, 10) },
+              ]}
+            >
               <TouchableOpacity
                 onPress={handleOpenViewers}
                 activeOpacity={0.84}
@@ -1108,6 +1406,9 @@ export default function StoryViewer({ route, navigation }: Props) {
         )}
 
       </Animated.View>
+          );
+        }}
+      />
 
       <BottomSheetStoryPrivacy
         visible={isPrivacySheetVisible}
@@ -1168,11 +1469,19 @@ export default function StoryViewer({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
+  userCarousel: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
   contentLayer: { flex: 1 },
   media: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  inactiveMediaFallback: {
+    backgroundColor: '#07080f',
   },
   gestureSurface: {
     position: 'absolute',
@@ -1220,8 +1529,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
+    borderWidth: 1.5,
+    borderColor: '#6C63FF',
   },
   userMeta: {
     gap: 2,
@@ -1254,28 +1563,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 12,
-    paddingHorizontal: 12,
+    bottom: 0,
   },
   interactionBar: {
-    borderRadius: 30,
     minHeight: 56,
-    paddingLeft: 16,
-    paddingRight: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
+    paddingTop: 10,
+    paddingLeft: 12,
+    paddingRight: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.18)',
     backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
   },
   ownStoryDock: {
-    borderRadius: 28,
     minHeight: 74,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(14,16,33,0.52)',
     overflow: 'hidden',
     flexDirection: 'row',
@@ -1283,11 +1590,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
-  input: {
+  messageField: {
     flex: 1,
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    justifyContent: 'center',
+  },
+  input: {
+    width: '100%',
     color: '#FFFFFF',
     minHeight: 44,
-    paddingVertical: 8,
+    paddingVertical: 0,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1379,7 +1696,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 34,
-    marginTop: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
   },
   suggestionWrap: {
     flexDirection: 'row',

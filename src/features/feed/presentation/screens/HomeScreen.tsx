@@ -1,8 +1,10 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
+} from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Dimensions, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
-  type StyleProp, type TextStyle, type ViewStyle,
+  Animated, Dimensions, Easing, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
+  type GestureResponderEvent, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,9 +22,11 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, StoryUser } from '@/app/navigation/types';
+import KzonePlaceholder from '@/features/feed/presentation/components/KzonePlaceholder';
 import { BottomSheetComments, type CommentPostPreview } from '@/features/comments';
 import { BottomSheetShare, type SharePostPreview } from '@/features/share';
 import { useStories } from '@/features/stories';
@@ -39,6 +43,7 @@ const { width } = Dimensions.get('window');
 
 const TAP_IN_DURATION = 70;
 const TAP_OUT_DURATION = 130;
+const DOUBLE_TAP_DELAY_MS = 280;
 const MENU_ENTER_DURATION = 210;
 const MENU_EXIT_DURATION = 130;
 const SPRING_CONFIG = {
@@ -225,6 +230,74 @@ const ContextMenuActionItem = memo(function ContextMenuActionItem({
   );
 });
 
+type FloatingHeart = {
+  id: number;
+  anim: Animated.Value;
+  x: number;
+  y: number;
+  rotate: number;
+  size: number;
+};
+
+type FloatingHeartsHandle = { spawn: (x: number, y: number) => void };
+
+const FloatingHearts = memo(
+  forwardRef<FloatingHeartsHandle>(function FloatingHearts(_props, ref) {
+    const [hearts, setHearts] = useState<FloatingHeart[]>([]);
+    const idRef = useRef(0);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        spawn(x: number, y: number) {
+          const id = idRef.current++;
+          const anim = new Animated.Value(0);
+          const rotate = Math.random() * 28 - 14;
+          const size = 88 + Math.round(Math.random() * 14);
+
+          setHearts((prev) => {
+            const next = [...prev, { id, anim, x, y, rotate, size }];
+            return next.length > 12 ? next.slice(next.length - 12) : next;
+          });
+
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 720,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start(() => {
+            setHearts((prev) => prev.filter((heart) => heart.id !== id));
+          });
+        },
+      }),
+      []
+    );
+
+    return (
+      <View pointerEvents="none" style={styles.heartsOverlay}>
+        {hearts.map((heart) => (
+          <Animated.View
+            key={heart.id}
+            style={{
+              position: 'absolute',
+              left: heart.x - heart.size / 2,
+              top: heart.y - heart.size / 2,
+              opacity: heart.anim.interpolate({ inputRange: [0, 0.12, 0.8, 1], outputRange: [0, 1, 1, 0] }),
+              transform: [
+                { translateY: heart.anim.interpolate({ inputRange: [0, 1], outputRange: [12, -34] }) },
+                { scale: heart.anim.interpolate({ inputRange: [0, 0.16, 0.38, 1], outputRange: [0.2, 1.24, 0.96, 1.04] }) },
+                { rotate: `${heart.rotate}deg` },
+              ],
+            }}
+          >
+            <Ionicons name="heart" size={heart.size} color="#FF5A8F" />
+          </Animated.View>
+        ))}
+      </View>
+    );
+  })
+);
+
 /* --- Card do Post (com animacoes) --- */
 type PostCardProps = {
   item: Post;
@@ -282,6 +355,8 @@ const PostCard = memo(function PostCard({
   const followScale = useSharedValue(1);
   const followProgress = useSharedValue(isFollowingAuthor ? 1 : 0);
   const menuButtonRef = useRef<View | null>(null);
+  const heartsRef = useRef<FloatingHeartsHandle>(null);
+  const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const likeIconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: likeScale.value }],
@@ -352,8 +427,7 @@ const PostCard = memo(function PostCard({
     ),
   }));
 
-  const handleLike = () => {
-    setLiked(v => !v);
+  const animateLikeIcon = useCallback(() => {
     likeScale.value = withSequence(
       withTiming(0.9, {
         duration: TAP_IN_DURATION,
@@ -365,7 +439,12 @@ const PostCard = memo(function PostCard({
         easing: ICON_EASE_OUT,
       })
     );
-  };
+  }, [likeScale]);
+
+  const handleLike = useCallback(() => {
+    setLiked(v => !v);
+    animateLikeIcon();
+  }, [animateLikeIcon]);
 
   const handleComment = () => {
     commentScale.value = withSequence(
@@ -537,7 +616,7 @@ const PostCard = memo(function PostCard({
     videoPlayer.pause();
   }, [hasVideoError, isVideoPost, shouldAutoPlay, videoPlayer]);
 
-  const handleVideoPress = async () => {
+  const handleVideoPress = useCallback(async () => {
     if (!isVideoPost || hasVideoError) return;
 
     if (hasEnded) {
@@ -553,7 +632,7 @@ const PostCard = memo(function PostCard({
     }
 
     setIsPausedByUser(false);
-  };
+  }, [hasEnded, hasVideoError, isPlaying, isVideoPost, videoPlayer]);
 
   const handleReplay = async () => {
     setHasEnded(false);
@@ -561,10 +640,43 @@ const PostCard = memo(function PostCard({
     videoPlayer.replay();
   };
 
+  const handleDoubleTapLike = useCallback((x: number, y: number) => {
+    setLiked(true);
+    animateLikeIcon();
+    heartsRef.current?.spawn(x, y);
+  }, [animateLikeIcon]);
+
+  const handleMediaTap = useCallback((event: GestureResponderEvent) => {
+    const { locationX, locationY } = event.nativeEvent;
+
+    if (singleTapTimeoutRef.current) {
+      clearTimeout(singleTapTimeoutRef.current);
+      singleTapTimeoutRef.current = null;
+      handleDoubleTapLike(locationX, locationY);
+      return;
+    }
+
+    singleTapTimeoutRef.current = setTimeout(() => {
+      singleTapTimeoutRef.current = null;
+
+      if (isVideoPost) {
+        void handleVideoPress();
+      }
+    }, DOUBLE_TAP_DELAY_MS);
+  }, [handleDoubleTapLike, handleVideoPress, isVideoPost]);
+
+  useEffect(() => (
+    () => {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+      }
+    }
+  ), []);
+
   const renderMedia = () => {
     if (item.type === 'image' && item.image) {
       return (
-        <View style={styles.mediaWrap}>
+        <Pressable style={styles.mediaWrap} onPress={handleMediaTap}>
           <Image
             source={{ uri: item.image }}
             style={styles.media}
@@ -572,7 +684,8 @@ const PostCard = memo(function PostCard({
             cachePolicy="memory-disk"
             recyclingKey={item.image}
           />
-        </View>
+          <FloatingHearts ref={heartsRef} />
+        </Pressable>
       );
     }
 
@@ -580,10 +693,9 @@ const PostCard = memo(function PostCard({
       const isVertical = item.type === 'video-vertical';
 
       return (
-        <TouchableOpacity
-          activeOpacity={1}
+        <Pressable
           style={[styles.videoWrap, isVertical ? styles.verticalVideoWrap : styles.horizontalVideoWrap]}
-          onPress={handleVideoPress}
+          onPress={handleMediaTap}
         >
           <VideoView
             player={videoPlayer}
@@ -606,6 +718,7 @@ const PostCard = memo(function PostCard({
               recyclingKey={item.thumbnail}
             />
           )}
+          <FloatingHearts ref={heartsRef} />
 
           <TouchableOpacity
             style={styles.muteButton}
@@ -637,7 +750,7 @@ const PostCard = memo(function PostCard({
               <Ionicons name="refresh" size={28} color="#F8F9FF" />
             </TouchableOpacity>
           )}
-        </TouchableOpacity>
+        </Pressable>
       );
     }
 
@@ -866,6 +979,10 @@ export default function Home() {
   const setAuthorFollowState = useFeedUiStore((state) => state.setAuthorFollowState);
   const menuProgress = useSharedValue(0);
 
+  const [activePage, setActivePage] = useState<0 | 1>(0);
+  const pageProgress = useSharedValue(0);
+  const dragStart = useSharedValue(0);
+
   const isMenuVisible = !!menuData;
 
   const menuAnimatedStyle = useAnimatedStyle(() => ({
@@ -876,6 +993,66 @@ export default function Home() {
       { scaleY: interpolate(menuProgress.value, [0, 1], [0.92, 1]) },
     ],
   }));
+
+  const trackAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -pageProgress.value * width }],
+  }));
+
+  const goToKachan = useCallback(() => {
+    pageProgress.value = withSpring(0, { damping: 18, stiffness: 200 });
+    setActivePage(0);
+  }, [pageProgress]);
+
+  const makeTitlePan = useCallback(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-12, 12])
+        .onStart(() => {
+          dragStart.value = pageProgress.value;
+        })
+        .onUpdate((event) => {
+          pageProgress.value = Math.min(
+            Math.max(dragStart.value - event.translationX / width, 0),
+            1
+          );
+        })
+        .onEnd((event) => {
+          const target =
+            event.velocityX < -500
+              ? 1
+              : event.velocityX > 500
+                ? 0
+                : pageProgress.value > 0.5
+                  ? 1
+                  : 0;
+          pageProgress.value = withSpring(target, {
+            damping: 18,
+            stiffness: 200,
+          });
+          runOnJS(setActivePage)(target as 0 | 1);
+        }),
+    [dragStart, pageProgress]
+  );
+
+  const kachanTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
+  const kzoneTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
+
+  useEffect(() => {
+    if (activePage !== 1) {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        goToKachan();
+        return true;
+      }
+    );
+
+    return () => subscription.remove();
+  }, [activePage, goToKachan]);
 
   const finishCloseContextMenu = useCallback(() => {
     storeCloseContextMenu();
@@ -1144,28 +1321,49 @@ export default function Home() {
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} start={[0,0]} end={[1,1]} style={StyleSheet.absoluteFill} />
 
-      {/* Topo fixo: nome + sino */}
-      <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <Text style={styles.logo}>KaChan!</Text>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
-          <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
-        </TouchableOpacity>
-      </View>
+      {/* Pager horizontal: arraste o nome para alternar KaChan! <-> Kzone! */}
+      <Reanimated.View style={[styles.pagerTrack, trackAnimatedStyle]}>
+        {/* Pagina 0 — KaChan! */}
+        <View style={styles.page}>
+          {/* Topo fixo: nome (puxador) + sino */}
+          <View style={[styles.topBar, { paddingTop: insets.top }]}>
+            <GestureDetector gesture={kachanTitlePan}>
+              <View hitSlop={12} style={styles.logoHandle}>
+                <Text style={styles.logo}>KaChan!</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color="rgba(229,231,244,0.5)"
+                />
+              </View>
+            </GestureDetector>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity style={{ padding: 6 }} accessibilityLabel="Notificacoes" accessibilityRole="button">
+              <MaterialCommunityIcons name="bell-outline" size={22} color="#E5E7F4" />
+            </TouchableOpacity>
+          </View>
 
-      {/* Feed: Stories no header (sobem juntos) */}
-      <FlatList
-        data={posts}
-        keyExtractor={(p) => p.id}
-        renderItem={renderPost}
-        ListHeaderComponent={feedHeader}
-        extraData={feedExtraData}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.feedContent}
-        removeClippedSubviews={false}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-      />
+          {/* Feed: Stories no header (sobem juntos) */}
+          <FlatList
+            data={posts}
+            keyExtractor={(p) => p.id}
+            renderItem={renderPost}
+            ListHeaderComponent={feedHeader}
+            extraData={feedExtraData}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.feedContent}
+            removeClippedSubviews={false}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+          />
+        </View>
+
+        {/* Pagina 1 — Kzone! (previa) */}
+        <KzonePlaceholder
+          titlePan={kzoneTitlePan}
+          topInset={insets.top}
+        />
+      </Reanimated.View>
 
       <BottomSheetComments
         visible={!!commentsPost}
@@ -1254,9 +1452,14 @@ export default function Home() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
+  // pager KaChan! <-> Kzone!
+  pagerTrack: { flex: 1, flexDirection: 'row', width: width * 2 },
+  page: { width },
+
   // topo fixo
   topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.3 },
+  logoHandle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingRight: 8 },
 
   // stories
   storiesWrap: { paddingVertical: 10, marginBottom: 8 },
@@ -1267,7 +1470,7 @@ const styles = StyleSheet.create({
   storyAvatarWrap: {
     position: 'absolute', top: 6, right: 8,
     width: 28, height: 28, borderRadius: 14,
-    borderWidth: 2, borderColor: '#fff',
+    borderWidth: 2, borderColor: '#6C63FF',
     backgroundColor: '#000', overflow: 'hidden',
   },
   storyAvatar: { width: '100%', height: '100%', borderRadius: 14 },
@@ -1323,8 +1526,9 @@ const styles = StyleSheet.create({
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
   // midia com aspectRatio (evita reflow)
-  mediaWrap: { width, backgroundColor: '#15182f' },
+  mediaWrap: { width, backgroundColor: '#15182f', overflow: 'hidden' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
+  heartsOverlay: { ...StyleSheet.absoluteFillObject },
 
   videoWrap: {
     width,

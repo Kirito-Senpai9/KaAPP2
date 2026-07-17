@@ -1,14 +1,20 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState,
+} from 'react';
 import {
   View, Text, StyleSheet, Dimensions, Pressable,
-  TouchableOpacity, Animated, Easing, Platform,
+  TouchableOpacity, Animated, Easing,
+  type GestureResponderEvent,
 } from 'react-native';
 import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { RootStackParamList } from '@/app/navigation/types';
 import type { Short } from '@/features/shorts/domain/entities/short';
 import { useShorts } from '@/features/shorts/presentation/hooks/useShorts';
 import { formatCount } from '@/shared/utils/formatCount';
@@ -19,14 +25,97 @@ const { width, height } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 86;
 const DOUBLE_TAP_DELAY_MS = 280;
 
+type FloatingHeart = {
+  id: number;
+  anim: Animated.Value;
+  x: number;
+  y: number;
+  rotate: number;
+  size: number;
+};
+
+type FloatingHeartsHandle = { spawn: (x: number, y: number) => void };
+
+const FloatingHearts = memo(
+  forwardRef<FloatingHeartsHandle>(function FloatingHearts(_props, ref) {
+    const [hearts, setHearts] = useState<FloatingHeart[]>([]);
+    const idRef = useRef(0);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        spawn(x: number, y: number) {
+          const id = idRef.current++;
+          const anim = new Animated.Value(0);
+          const rotate = Math.random() * 28 - 14;
+          const size = 88 + Math.round(Math.random() * 14);
+          setHearts((prev) => {
+            const next = [...prev, { id, anim, x, y, rotate, size }];
+            return next.length > 12 ? next.slice(next.length - 12) : next;
+          });
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 720,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start(() => {
+            setHearts((prev) => prev.filter((h) => h.id !== id));
+          });
+        },
+      }),
+      []
+    );
+
+    return (
+      <View pointerEvents="none" style={styles.heartsOverlay}>
+        {hearts.map((heart) => (
+          <Animated.View
+            key={heart.id}
+            style={{
+              position: 'absolute',
+              left: heart.x - heart.size / 2,
+              top: heart.y - heart.size / 2,
+              opacity: heart.anim.interpolate({ inputRange: [0, 0.12, 0.8, 1], outputRange: [0, 1, 1, 0] }),
+              transform: [
+                { translateY: heart.anim.interpolate({ inputRange: [0, 1], outputRange: [12, -34] }) },
+                { scale: heart.anim.interpolate({ inputRange: [0, 0.16, 0.38, 1], outputRange: [0.2, 1.24, 0.96, 1.04] }) },
+                { rotate: `${heart.rotate}deg` },
+              ],
+            }}
+          >
+            <Ionicons name="heart" size={heart.size} color="#FF5A8F" />
+          </Animated.View>
+        ))}
+      </View>
+    );
+  })
+);
+
 /* =========================================
    Abas topo (Para você / Seguindo) — só texto
 ========================================= */
 function Tabs({
-  mode, onChange,
-}: { mode: 'forYou' | 'following'; onChange: (m: 'forYou' | 'following') => void }) {
+  mode, onChange, topOffset, onOpenLive,
+}: {
+  mode: 'forYou' | 'following';
+  onChange: (m: 'forYou' | 'following') => void;
+  topOffset: number;
+  onOpenLive: () => void;
+}) {
   return (
-    <View style={styles.tabsWrap}>
+    <View style={[styles.tabsWrap, { top: topOffset }]}>
+      <TouchableOpacity
+        onPress={onOpenLive}
+        activeOpacity={0.85}
+        style={styles.liveEntryBtn}
+        accessibilityRole="button"
+        accessibilityLabel="Abrir lives"
+      >
+        <View style={styles.liveEntryIcon}>
+          <Ionicons name="radio-outline" size={20} color="#FFFFFF" />
+          <View style={styles.liveEntryDot} />
+        </View>
+      </TouchableOpacity>
       <View style={styles.tabsOnlyText}>
         <TouchableOpacity onPress={() => onChange('forYou')} activeOpacity={0.9} style={styles.tabTextBtn}>
           <Text style={[styles.tabText, mode === 'forYou' && styles.tabTextActive]}>Para você</Text>
@@ -66,8 +155,7 @@ const ShortCard = memo(function ShortCard({
   const shareX = useRef(new Animated.Value(0)).current;
   const likeColor = liked ? '#FF5A8F' : '#EDEFFF';
 
-  // coração “burst” no meio (duplo toque)
-  const burst = useRef(new Animated.Value(0)).current;
+  const heartsRef = useRef<FloatingHeartsHandle>(null);
   const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // marquee do áudio
@@ -120,21 +208,23 @@ const ShortCard = memo(function ShortCard({
     setUserPaused((p) => !p);
   }, []);
 
-  const onConfirmedDoubleTap = useCallback(() => {
+  const spawnLikeHearts = useCallback((x: number, y: number) => {
+    heartsRef.current?.spawn(x, y);
+  }, []);
+
+  const onConfirmedDoubleTap = useCallback((x: number, y: number) => {
     if (!liked) setLiked(true);
     onDoubleLike?.();
     animateHeart();
-    Animated.sequence([
-      Animated.timing(burst, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.timing(burst, { toValue: 0, duration: 240, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-    ]).start();
-  }, [burst, liked, onDoubleLike]);
+    spawnLikeHearts(x, y);
+  }, [liked, onDoubleLike, spawnLikeHearts]);
 
-  const handleSingleOrDoubleTap = useCallback(() => {
+  const handleSingleOrDoubleTap = useCallback((event: GestureResponderEvent) => {
+    const { locationX, locationY } = event.nativeEvent;
     if (singleTapTimeoutRef.current) {
       clearTimeout(singleTapTimeoutRef.current);
       singleTapTimeoutRef.current = null;
-      onConfirmedDoubleTap();
+      onConfirmedDoubleTap(locationX, locationY);
       return;
     }
 
@@ -153,8 +243,15 @@ const ShortCard = memo(function ShortCard({
   ), []);
 
   // clicar no coração (ícone) — animação + toggle
-  const onHeartPress = () => {
-    setLiked(v => !v);
+  const onHeartPress = (event: GestureResponderEvent) => {
+    const { pageX, pageY } = event.nativeEvent;
+    setLiked((value) => {
+      const next = !value;
+      if (next) {
+        spawnLikeHearts(pageX, pageY);
+      }
+      return next;
+    });
     animateHeart(); // anima SOMENTE o ícone
   };
 
@@ -172,11 +269,6 @@ const ShortCard = memo(function ShortCard({
       Animated.timing(shareX, { toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
     ]).start();
     // compartilhar futuramente
-  };
-
-  const heartStyle = {
-    transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }],
-    opacity: burst,
   };
 
   const marqueeTx = marquee.interpolate({ inputRange: [0, 1], outputRange: [0, -width * 0.6] });
@@ -197,11 +289,6 @@ const ShortCard = memo(function ShortCard({
           useExoShutter={false}
         />
       </Pressable>
-
-      {/* coração burst (double tap) */}
-      <Animated.View style={[styles.centerHeart, heartStyle]}>
-        <Ionicons name="heart" size={84} color="#FF5A8F" />
-      </Animated.View>
 
       {/* gradiente sutil para leitura */}
       <LinearGradient
@@ -282,6 +369,8 @@ const ShortCard = memo(function ShortCard({
           </View>
         </View>
       </View>
+
+      <FloatingHearts ref={heartsRef} />
     </View>
   );
 });
@@ -291,7 +380,10 @@ const ShortCard = memo(function ShortCard({
 ========================================= */
 export default function Shorts() {
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { mode, setMode, data } = useShorts(isFocused);
+  const tabsTopOffset = insets.top;
 
   const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
 
@@ -331,7 +423,12 @@ export default function Shorts() {
   return (
     <View style={styles.root}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
-      <Tabs mode={mode} onChange={setMode} />
+      <Tabs
+        mode={mode}
+        onChange={setMode}
+        topOffset={tabsTopOffset}
+        onOpenLive={() => navigation.navigate('Live')}
+      />
 
       <FlashList
         data={data}
@@ -357,7 +454,6 @@ const styles = StyleSheet.create({
   /* Tabs topo — texto apenas */
   tabsWrap: {
     position: 'absolute',
-    top: Platform.select({ ios: 12, android: 8 }),
     left: 0, right: 0, zIndex: 30,
     alignItems: 'center',
   },
@@ -366,18 +462,41 @@ const styles = StyleSheet.create({
     gap: 18,
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 2,
   },
   tabTextBtn: { paddingHorizontal: 6, paddingVertical: 6 },
   tabText: { color: '#A6ADCE', fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
   tabTextActive: { color: '#FFFFFF' },
+
+  /* Botão de entrada das Lives (esquerda das abas) */
+  liveEntryBtn: {
+    position: 'absolute',
+    left: 6,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 2,
+  },
+  liveEntryIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  liveEntryDot: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#FF5A8F',
+    borderWidth: 1,
+    borderColor: '#0E0E12',
+  },
 
   /* Página do vídeo */
   page: { width, height, justifyContent: 'center', alignItems: 'center' },
   videoTouch: { position: 'absolute', width, height },
   video: { width, height, backgroundColor: '#000' },
 
-  centerHeart: { position: 'absolute', alignSelf: 'center', top: height * 0.4 },
+  heartsOverlay: { ...StyleSheet.absoluteFillObject },
 
   /* barra de progresso (discreta, acima da bottom bar) */
   progressTrack: {

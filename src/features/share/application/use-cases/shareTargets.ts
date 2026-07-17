@@ -1,7 +1,4 @@
-import type {
-  ShareTarget,
-  ShareTargetSection,
-} from '@/features/share/domain/entities/share';
+import type { ShareTarget } from '@/features/share/domain/entities/share';
 
 export function filterShareTargets(
   targets: ShareTarget[],
@@ -23,24 +20,30 @@ export function filterShareTargets(
   });
 }
 
-export function buildShareTargetSections(
-  targets: ShareTarget[]
-): ShareTargetSection[] {
-  const contacts = targets.filter((target) => target.type === 'user');
-  const communities = targets.filter((target) => target.type === 'community');
+export function buildShareTargetList(
+  targets: ShareTarget[],
+  query: string,
+  recentIds: string[]
+): ShareTarget[] {
+  const filtered = filterShareTargets(targets, query);
 
-  const sections: ShareTargetSection[] = [
-    {
-      key: 'contacts',
-      title: 'Contatos',
-      targets: contacts,
-    },
-    {
-      key: 'communities',
-      title: 'Comunidades',
-      targets: communities,
-    },
-  ];
+  if (recentIds.length === 0) {
+    return filtered;
+  }
 
-  return sections.filter((section) => section.targets.length > 0);
+  const filteredById = new Map(filtered.map((target) => [target.id, target]));
+  const recentTargets: ShareTarget[] = [];
+  const seenRecentIds = new Set<string>();
+
+  for (const id of recentIds) {
+    const target = filteredById.get(id);
+    if (target && !seenRecentIds.has(id)) {
+      recentTargets.push(target);
+      seenRecentIds.add(id);
+    }
+  }
+
+  const remaining = filtered.filter((target) => !seenRecentIds.has(target.id));
+
+  return [...recentTargets, ...remaining];
 }

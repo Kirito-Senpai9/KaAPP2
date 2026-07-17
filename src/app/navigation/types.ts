@@ -32,6 +32,7 @@ export type RootStackParamList = {
   CriarPostagem: undefined;
   CriarShorts: undefined;
   LiveSetup: undefined;
+  Live: undefined;
   EditarPerfil: undefined;
 };
 
