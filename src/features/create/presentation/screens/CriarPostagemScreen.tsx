@@ -1,14 +1,28 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, useWindowDimensions, ScrollView } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
 
-const { width } = Dimensions.get('window');
+const AUDIENCES = [
+  { value: 'publico', label: 'Público' },
+  { value: 'amigos', label: 'Amigos' },
+  { value: 'privado', label: 'Privado' },
+] as const;
 
 export default function CriarPostagem({ navigation }: RootStackScreenProps<'CriarPostagem'>) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const previewSize = { height: Math.max(1, width - insets.left - insets.right) * 0.56 };
+  const pickerBusy = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const [media, setMedia] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [tags, setTags] = useState<string>('');
@@ -18,12 +32,16 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
   const anim = useRef(new Animated.Value(1)).current;
 
   const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9
-    });
-    if (!res.canceled && res.assets?.[0]?.uri) setMedia(res.assets[0].uri);
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+      if (mounted.current && !res.canceled && res.assets?.[0]?.uri) setMedia(res.assets[0].uri);
+    } catch {
+      if (mounted.current) Alert.alert('Não foi possível selecionar', 'Tente escolher outra imagem da galeria.');
+    } finally {
+      pickerBusy.current = false;
+    }
   };
 
   const onPublish = () => {
@@ -36,17 +54,8 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
     // payload: { type:'post', media, text, tags, audience }
   };
 
-  const AudienceButton = ({ value, label }: { value: typeof audience; label: string }) => {
-    const active = audience === value;
-    return (
-      <TouchableOpacity onPress={() => setAudience(value)} style={[styles.chip, active && styles.chipActive]} activeOpacity={0.85}>
-        <Text style={[styles.chipTxt, active && styles.chipTxtActive]}>{label}</Text>
-      </TouchableOpacity>
-    );
-  };
-
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <LinearGradient colors={['#0E0E12','#11142a','#0E0E12']} style={StyleSheet.absoluteFill} />
 
       <View style={styles.header}>
@@ -57,7 +66,7 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
         <View style={styles.hBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + insets.bottom }}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Texto</Text>
           <TextInput
@@ -71,7 +80,7 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
 
           <Text style={[styles.cardTitle, { marginTop: 18 }]}>Imagem (opcional)</Text>
           {media ? (
-            <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={styles.mediaPreview}>
+            <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={[styles.mediaPreview, previewSize]}>
               <Image
                 source={{ uri: media }}
                 style={styles.previewImg}
@@ -81,7 +90,7 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
               />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={styles.mediaPlaceholder}>
+            <TouchableOpacity onPress={pickImage} activeOpacity={0.9} style={[styles.mediaPlaceholder, previewSize]}>
               <Ionicons name="image-outline" size={26} color="#cfd3ff" />
               <Text style={styles.phTxt}>Adicionar imagem</Text>
             </TouchableOpacity>
@@ -98,9 +107,11 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
 
           <Text style={[styles.cardTitle, { marginTop: 18 }]}>Audiência</Text>
           <View style={styles.row}>
-            <AudienceButton value="publico" label="Público" />
-            <AudienceButton value="amigos"  label="Amigos" />
-            <AudienceButton value="privado" label="Privado" />
+            {AUDIENCES.map(({ value, label }) => (
+              <TouchableOpacity key={value} onPress={() => setAudience(value)} style={[styles.chip, audience === value && styles.chipActive]} activeOpacity={0.85}>
+                <Text style={[styles.chipTxt, audience === value && styles.chipTxtActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
@@ -113,7 +124,7 @@ export default function CriarPostagem({ navigation }: RootStackScreenProps<'Cria
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -125,8 +136,8 @@ const styles = StyleSheet.create({
   card: { backgroundColor: 'rgba(21,24,47,0.65)', borderRadius: 18, padding: 14, marginTop: 12 },
   cardTitle: { color: '#cfd3ff', fontWeight: '700', marginBottom: 8 },
   input: { minHeight: 56, borderRadius: 12, padding: 12, backgroundColor: 'rgba(0,0,0,0.25)', color: '#fff' },
-  mediaPlaceholder: { height: width * 0.56, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  mediaPreview: { height: width * 0.56, borderRadius: 14, overflow: 'hidden' },
+  mediaPlaceholder: { borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  mediaPreview: { borderRadius: 14, overflow: 'hidden' },
   previewImg: { width: '100%', height: '100%' },
   phTxt: { color: '#cfd3ff' },
   row: { flexDirection: 'row', gap: 10 },

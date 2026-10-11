@@ -1,9 +1,10 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
+  useWindowDimensions,
   Linking,
   Pressable,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -20,7 +21,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Reanimated, {
   interpolate,
   runOnJS,
@@ -38,14 +40,10 @@ import {
 } from '@/features/profile/presentation/store/useProfileStore';
 import { ProfileMediaViewport } from '@/features/profile/presentation/components/ProfileMediaViewport';
 import { formatCount } from '@/shared/utils/formatCount';
+import { getTabBarOccupiedHeight } from '@/shared/utils/tabBarLayout';
 
-const { width } = Dimensions.get('window');
-const TAB_BAR_HEIGHT = 112;
 const GRID_GAP = 2;
-const TILE_SIZE = Math.floor((width - GRID_GAP * 2) / 3);
-const VIDEO_TAB_WIDTH = width / 5;
 const VIDEO_TAB_INDICATOR_WIDTH = 32;
-const VIDEO_TAB_INDICATOR_OFFSET = (VIDEO_TAB_WIDTH - VIDEO_TAB_INDICATOR_WIDTH) / 2;
 const SWIPE_CLAMP_DISTANCE = 72;
 const SWIPE_TRIGGER_DISTANCE = 52;
 const SWIPE_TRIGGER_VELOCITY = 520;
@@ -232,11 +230,13 @@ const isSafeHttpUrl = (url: string) => /^https?:\/\//i.test(url);
 
 const ProfileVideoTile = memo(function ProfileVideoTile({
   item,
+  tileWidth,
 }: {
   item: ProfileVideo;
+  tileWidth: number;
 }) {
   return (
-    <View style={styles.tile}>
+    <View style={[styles.tile, { width: tileWidth, height: Math.floor(tileWidth * 1.34) }]}>
       <Image
         source={{ uri: item.thumbnail }}
         style={styles.tileImage}
@@ -260,9 +260,11 @@ const ProfileVideoTile = memo(function ProfileVideoTile({
 const ProfileVideoRow = memo(function ProfileVideoRow({
   row,
   animatedStyle,
+  tileWidth,
 }: {
   row: ProfileVideoRowData;
   animatedStyle: React.ComponentProps<typeof Reanimated.View>['style'];
+  tileWidth: number;
 }) {
   const spacerCount = Math.max(0, 3 - row.items.length);
 
@@ -270,10 +272,10 @@ const ProfileVideoRow = memo(function ProfileVideoRow({
     <Reanimated.View style={[styles.videoRow, animatedStyle]}>
       <View style={styles.videoRowInner}>
         {row.items.map((item) => (
-          <ProfileVideoTile key={item.id} item={item} />
+          <ProfileVideoTile key={item.id} item={item} tileWidth={tileWidth} />
         ))}
         {Array.from({ length: spacerCount }, (_, index) => (
-          <View key={`${row.id}-spacer-${index}`} style={styles.tileSpacer} />
+          <View key={`${row.id}-spacer-${index}`} style={{ width: tileWidth, height: Math.floor(tileWidth * 1.34) }} />
         ))}
       </View>
     </Reanimated.View>
@@ -282,6 +284,11 @@ const ProfileVideoRow = memo(function ProfileVideoRow({
 
 export default function Perfil() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const width = Math.max(1, windowWidth - insets.left - insets.right);
+  const tileWidth = Math.floor((width - GRID_GAP * 2) / 3);
+  const videoTabWidth = width / VIDEO_TABS.length;
+  const indicatorOffset = (videoTabWidth - VIDEO_TAB_INDICATOR_WIDTH) / 2;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const statusSheetRef = useRef<BottomSheetModal>(null);
   const [activeTab, setActiveTab] = useState<VideoTabId>('posts');
@@ -290,7 +297,7 @@ export default function Perfil() {
   const contentTranslateX = useSharedValue(0);
   const contentOpacity = useSharedValue(1);
   const isTabTransitioning = useSharedValue(false);
-  const tabIndicatorX = useSharedValue(VIDEO_TAB_INDICATOR_OFFSET);
+  const tabIndicatorX = useSharedValue(indicatorOffset);
   const profileName = useProfileStore((state) => state.name);
   const profileHandle = useProfileStore((state) => state.handle);
   const profileAvatar = useProfileStore((state) => state.avatar);
@@ -393,14 +400,14 @@ export default function Perfil() {
 
   useEffect(() => {
     tabIndicatorX.value = withSpring(
-      activeTabIndex * VIDEO_TAB_WIDTH + VIDEO_TAB_INDICATOR_OFFSET,
+      activeTabIndex * videoTabWidth + indicatorOffset,
       {
         damping: 18,
         stiffness: 220,
         mass: 0.84,
       }
     );
-  }, [activeTabIndex, tabIndicatorX]);
+  }, [activeTabIndex, indicatorOffset, tabIndicatorX, videoTabWidth]);
 
   const swipeVideoTabsGesture = useMemo(() => Gesture.Pan()
     .activeOffsetX([-12, 12])
@@ -552,9 +559,9 @@ export default function Perfil() {
 
   const renderVideoRow = useCallback(
     ({ item }: { item: ProfileVideoRowData }) => (
-      <ProfileVideoRow row={item} animatedStyle={animatedContentStyle} />
+      <ProfileVideoRow row={item} animatedStyle={animatedContentStyle} tileWidth={tileWidth} />
     ),
-    [animatedContentStyle]
+    [animatedContentStyle, tileWidth]
   );
 
   const getVideoRowType = useCallback(
@@ -562,7 +569,7 @@ export default function Perfil() {
     []
   );
 
-  const renderHeader = useCallback(() => (
+  const listHeader = useMemo(() => (
     <View style={styles.header}>
       <View style={styles.bannerWrap}>
         <ProfileMediaViewport
@@ -614,7 +621,7 @@ export default function Perfil() {
           />
         </View>
 
-        <View style={styles.profileNameRow}>
+        <View style={[styles.profileNameRow, { maxWidth: width - 36 }]}>
           <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
           <Pressable
             style={styles.editProfileButton}
@@ -625,7 +632,7 @@ export default function Perfil() {
             <Ionicons name="create-outline" size={14} color="rgba(221,225,255,0.9)" />
           </Pressable>
         </View>
-        <Text style={styles.profileHandle} numberOfLines={1}>{profileHandle}</Text>
+        <Text style={[styles.profileHandle, { maxWidth: width - 48 }]} numberOfLines={1}>{profileHandle}</Text>
 
         <View style={styles.accountMetrics}>
           {ACCOUNT_METRICS.map((metric) => (
@@ -710,6 +717,7 @@ export default function Perfil() {
     profileName,
     selectedStatusOption,
     visibleSocialLinks,
+    width,
   ]);
 
   const listEmptyComponent = useMemo(() => (
@@ -734,11 +742,11 @@ export default function Perfil() {
           renderItem={renderVideoRow}
           keyExtractor={(item) => item.id}
           getItemType={getVideoRowType}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={listHeader}
           ListEmptyComponent={listEmptyComponent}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingBottom: TAB_BAR_HEIGHT + insets.bottom,
+            paddingBottom: getTabBarOccupiedHeight(insets.bottom, Platform.OS) + 10,
           }}
         />
       </GestureDetector>
@@ -841,7 +849,6 @@ const styles = StyleSheet.create({
   profileNameRow: {
     marginTop: 6,
     width: '100%',
-    maxWidth: width - 36,
     minHeight: 30,
     alignItems: 'center',
     justifyContent: 'center',
@@ -869,7 +876,6 @@ const styles = StyleSheet.create({
   },
   profileHandle: {
     marginTop: 3,
-    maxWidth: width - 48,
     color: '#9EA5D4',
     fontSize: 14,
     fontWeight: '700',
@@ -976,14 +982,8 @@ const styles = StyleSheet.create({
     gap: GRID_GAP,
   },
   tile: {
-    width: TILE_SIZE,
-    height: Math.floor(TILE_SIZE * 1.34),
     backgroundColor: '#15182F',
     overflow: 'hidden',
-  },
-  tileSpacer: {
-    width: TILE_SIZE,
-    height: Math.floor(TILE_SIZE * 1.34),
   },
   tileImage: {
     width: '100%',

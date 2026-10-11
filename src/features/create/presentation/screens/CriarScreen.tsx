@@ -4,23 +4,20 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
   Animated,
   ScrollView,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RootStackParamList } from '@/app/navigation/types';
-
-const { width } = Dimensions.get("window");
-
-// mesma altura que você usa na sua tab bar
-const TAB_BAR_HEIGHT = 86;
+import { getTabBarOccupiedHeight } from '@/shared/utils/tabBarLayout';
 
 export default function CriarScreen() {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const OptionCard = ({
     icon,
@@ -69,7 +66,7 @@ export default function CriarScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <Ionicons name="arrow-back" size={26} color="#fff" />
@@ -80,7 +77,7 @@ export default function CriarScreen() {
       {/* Conteúdo com paddingBottom para não ficar atrás da tab bar */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT + 28, paddingTop: 6 }}
+        contentContainerStyle={{ paddingBottom: getTabBarOccupiedHeight(insets.bottom, Platform.OS) + 12, paddingTop: 6 }}
       >
         <View style={styles.options}>
           <OptionCard
@@ -130,7 +127,7 @@ const styles = StyleSheet.create({
 
   cardWrapper: { borderRadius: 16, overflow: "hidden" },
   card: {
-    width: width - 32,
+    width: '100%',
     minHeight: 110,
     borderRadius: 16,
     padding: 20,

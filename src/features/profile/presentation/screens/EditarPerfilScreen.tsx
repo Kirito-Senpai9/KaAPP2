@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
+  useWindowDimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
   runOnJS,
@@ -61,9 +61,7 @@ type DraggableGamerStatRowProps = {
 };
 
 const STAT_ROW_HEIGHT = 74;
-const { width: windowWidth } = Dimensions.get('window');
 const EDIT_PROFILE_BANNER_HEIGHT = 190;
-const EDIT_PROFILE_BANNER_WIDTH = windowWidth - 32;
 const EDIT_PROFILE_AVATAR_SIZE = 84;
 
 const SOCIAL_LINK_OPTIONS: SocialLinkOption[] = [
@@ -102,7 +100,7 @@ const isSafeHttpUrl = (value: string) => {
   }
 };
 
-function DraggableGamerStatRow({
+const DraggableGamerStatRow = memo(function DraggableGamerStatRow({
   stat,
   index,
   itemCount,
@@ -114,10 +112,10 @@ function DraggableGamerStatRow({
   const translateY = useSharedValue(0);
   const scale = useSharedValue(1);
 
-  const panGesture = Gesture.Pan()
+  const panGesture = useMemo(() => Gesture.Pan()
     .activateAfterLongPress(130)
     .minDistance(4)
-    .onBegin(() => {
+    .onStart(() => {
       scale.value = withSpring(1.025);
       runOnJS(onDragStart)();
     })
@@ -136,7 +134,7 @@ function DraggableGamerStatRow({
       translateY.value = withSpring(0);
       scale.value = withSpring(1);
       runOnJS(onDragEnd)();
-    });
+    }), [index, itemCount, onDragEnd, onDragStart, onMoveToIndex, scale, stat.id, translateY]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -179,10 +177,18 @@ function DraggableGamerStatRow({
       </Reanimated.View>
     </GestureDetector>
   );
-}
+});
 
 export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<'EditarPerfil'>) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const bannerWidth = Math.max(1, windowWidth - insets.left - insets.right - 32);
+  const pickerBusy = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const savedName = useProfileStore((state) => state.name);
   const savedHandle = useProfileStore((state) => state.handle);
   const savedAvatar = useProfileStore((state) => state.avatar);
@@ -211,6 +217,8 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
   );
 
   const canSave = name.trim().length > 0 && normalizeHandle(handle).length > 1;
+  const startStatDrag = useCallback(() => setIsDraggingStat(true), []);
+  const endStatDrag = useCallback(() => setIsDraggingStat(false), []);
 
   const openMediaEditor = useCallback((kind: EditableImageKind, media: ProfileMedia) => {
     setMediaEditorState({ kind, media });
@@ -221,14 +229,9 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
   }, []);
 
   const pickProfileImage = useCallback(async (kind: EditableImageKind) => {
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert('Permissao necessaria', 'Libere acesso a galeria para atualizar sua imagem.');
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         quality: kind === 'banner' ? 1 : 0.95,
@@ -236,7 +239,7 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
         allowsMultipleSelection: false,
       });
 
-      if (result.canceled || !result.assets?.[0]?.uri) {
+      if (!mounted.current || result.canceled || !result.assets?.[0]?.uri) {
         return;
       }
 
@@ -257,7 +260,9 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
       });
     } catch (error) {
       console.warn('[EditarPerfilScreen] Falha ao escolher imagem', error);
-      Alert.alert('Nao foi possivel atualizar', 'Tente escolher outra imagem da galeria.');
+      if (mounted.current) Alert.alert('Nao foi possivel atualizar', 'Tente escolher outra imagem da galeria.');
+    } finally {
+      pickerBusy.current = false;
     }
   }, [avatar.height, avatar.width, banner.height, banner.width, openMediaEditor]);
 
@@ -423,13 +428,14 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
               >
                 <ProfileMediaViewport
                   media={banner}
-                  viewportWidth={EDIT_PROFILE_BANNER_WIDTH}
+                  viewportWidth={bannerWidth}
                   viewportHeight={EDIT_PROFILE_BANNER_HEIGHT}
                   style={styles.bannerPreview}
                   accessibilityLabel="Preview do banner do perfil"
                 />
               </Pressable>
               <LinearGradient
+                pointerEvents="none"
                 colors={['rgba(14,14,18,0.04)', 'rgba(14,14,18,0.48)', '#0E0E12']}
                 style={styles.previewShade}
               />
@@ -560,8 +566,8 @@ export default function EditarPerfilScreen({ navigation }: RootStackScreenProps<
                   stat={stat}
                   index={index}
                   itemCount={orderedStats.length}
-                  onDragStart={() => setIsDraggingStat(true)}
-                  onDragEnd={() => setIsDraggingStat(false)}
+                  onDragStart={startStatDrag}
+                  onDragEnd={endStatDrag}
                   onMoveToIndex={moveStatToIndex}
                   onMoveByOffset={moveStatByOffset}
                 />

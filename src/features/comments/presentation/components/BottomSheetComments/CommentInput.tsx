@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useCallback, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   type LayoutChangeEvent,
@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { BottomSheetTextInput } from '@gorhom/bottom-sheet';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type {
   CommentAuthor,
   CommentReplyTarget,
@@ -17,14 +17,12 @@ import type {
 
 type CommentInputProps = {
   currentUser: CommentAuthor;
-  value: string;
   replyingTo: CommentReplyTarget | null;
   bottomPadding: number;
-  onChangeText: (value: string) => void;
   onFocus: () => void;
   onBlur: () => void;
   onCancelReply: () => void;
-  onSend: () => void;
+  onSend: (content: string) => boolean;
   onSendPressIn: () => void;
   onLayout?: (event: LayoutChangeEvent) => void;
 };
@@ -35,10 +33,8 @@ const CommentInput = forwardRef<
 >(function CommentInput(
   {
     currentUser,
-    value,
     replyingTo,
     bottomPadding,
-    onChangeText,
     onFocus,
     onBlur,
     onCancelReply,
@@ -48,7 +44,11 @@ const CommentInput = forwardRef<
   },
   ref
 ) {
+  const [value, setValue] = useState('');
   const canSend = value.trim().length > 0;
+  const handleSend = useCallback(() => {
+    if (onSend(value)) setValue('');
+  }, [onSend, value]);
 
   return (
     <View
@@ -81,7 +81,7 @@ const CommentInput = forwardRef<
         <BottomSheetTextInput
           ref={ref}
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={setValue}
           placeholder={
             replyingTo ? `Responder ${replyingTo.username}` : 'Adicione um comentario...'
           }
@@ -101,7 +101,7 @@ const CommentInput = forwardRef<
           activeOpacity={0.85}
           disabled={!canSend}
           onPressIn={onSendPressIn}
-          onPress={onSend}
+          onPress={handleSend}
         >
           <Ionicons name="paper-plane" size={16} color="#FAFBFF" />
         </TouchableOpacity>

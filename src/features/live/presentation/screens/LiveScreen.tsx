@@ -2,7 +2,7 @@ import React, {
   forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from 'react';
 import {
-  View, Text, StyleSheet, Dimensions, Pressable,
+  View, Text, StyleSheet, useWindowDimensions, Pressable,
   TouchableOpacity, Animated, Easing, TextInput, Keyboard,
   type GestureResponderEvent,
 } from 'react-native';
@@ -13,6 +13,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import {
   FlashList,
+  useRecyclingState,
   type FlashListProps,
   type FlashListRef,
   type ListRenderItem,
@@ -21,15 +22,19 @@ import {
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import type { LiveChatItem, LiveStream } from '@/features/live/domain/entities/live';
 import { useLives } from '@/features/live/presentation/hooks/useLives';
 import { formatCount } from '@/shared/utils/formatCount';
+import { createCachedVideoSource } from '@/shared/constants/demoMedia';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
+import { useLiveUiStore } from '@/features/live/presentation/store/useLiveUiStore';
 
-const { width, height } = Dimensions.get('window');
+const EMPTY_MESSAGES: LiveChatItem[] = [];
+const liveKeyExtractor = (item: LiveStream) => item.id;
+const liveGetItemType = () => 'live';
 
 const CHIPS = [
   { id: 'rank', icon: 'flame' as const, label: 'Ranking' },
@@ -149,7 +154,7 @@ function ChatRow({ item }: { item: LiveChatItem }) {
     return (
       <View style={styles.chatMsg}>
         {item.avatar ? (
-          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" cachePolicy="memory-disk" />
+          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" cachePolicy="memory-disk" recyclingKey={item.avatar} />
         ) : null}
         <View style={styles.chatBubble}>
           <View style={styles.chatHead}>
@@ -224,10 +229,12 @@ const ChatList = memo(function ChatList({
   messages,
   visibleCount,
   onBlankPress,
+  width,
 }: {
   messages: LiveChatItem[];
   visibleCount: number;
   onBlankPress: (event: GestureResponderEvent) => void;
+  width: number;
 }) {
   const listRef = useRef<FlashListRef<LiveChatItem>>(null);
   const canScroll = messages.length > visibleCount;
@@ -238,7 +245,7 @@ const ChatList = memo(function ChatList({
     height: chatHeight,
     marginBottom: 10,
     overflow: 'hidden' as const,
-  }), [chatHeight]);
+  }), [chatHeight, width]);
 
   const renderChatItem = useCallback<ListRenderItem<LiveChatItem>>(
     ({ item }) => (
@@ -301,25 +308,55 @@ const ChatList = memo(function ChatList({
 /* =========================================
    Card da Live (cada página)
 ========================================= */
+const LiveVideo = memo(function LiveVideo({ uri, playing }: { uri: string; playing: boolean }) {
+  const source = useMemo(() => createCachedVideoSource(uri), [uri]);
+  const player = useVideoPlayer(source, (videoPlayer) => { videoPlayer.loop = true; });
+  const [failed, setFailed] = useRecyclingState(false, [uri, player]);
+
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }) => {
+      setFailed(status === 'error');
+    });
+    setFailed(player.status === 'error');
+    return () => subscription.remove();
+  }, [player, setFailed]);
+
+  useEffect(() => {
+    if (playing && !failed) player.play();
+    else player.pause();
+  }, [failed, player, playing]);
+
+  return (
+    <>
+      <VideoView player={player} style={styles.video} contentFit="cover"
+        nativeControls={false} surfaceType="textureView" useExoShutter={false} />
+      {failed && <View style={styles.videoError}><Text style={styles.chatText}>Não foi possível carregar a live.</Text></View>}
+    </>
+  );
+});
+
 const LiveCard = memo(function LiveCard({
-  item, playing, insets, onClose,
+  item, playing, preload, width, height, insets, onClose,
 }: {
   item: LiveStream;
   playing: boolean;
+  preload: boolean;
+  width: number;
+  height: number;
   insets: EdgeInsets;
   onClose: () => void;
 }) {
-  const player = useVideoPlayer(item.videoUrl, (videoPlayer) => {
-    videoPlayer.loop = true;
-  });
-
-  const [follow, setFollow] = useState(!!item.host.following);
-  const [likeCount, setLikeCount] = useState(item.host.likes);
-  const [viewers, setViewers] = useState(item.viewers);
-  const [input, setInput] = useState('');
-  const [chat, setChat] = useState<LiveChatItem[]>(item.chat);
-  const [isInputFocused, setIsInputFocused] = useState(false);
-  const [currentInteraction, setCurrentInteraction] = useState<LiveChatItem>(() => genInteraction());
+  const follow = useLiveUiStore((state) => state.followingByHost[item.host.id] ?? !!item.host.following);
+  const likeCount = useLiveUiStore((state) => state.likesByLive[item.id] ?? item.host.likes);
+  const localMessages = useLiveUiStore((state) => state.messagesByLive[item.id] ?? EMPTY_MESSAGES);
+  const setFollowing = useLiveUiStore((state) => state.setFollowing);
+  const addLikes = useLiveUiStore((state) => state.addLikes);
+  const addMessage = useLiveUiStore((state) => state.addMessage);
+  const setFollow = useCallback((value: boolean) => setFollowing(item.host.id, value), [item.host.id, setFollowing]);
+  const [viewers, setViewers] = useRecyclingState(item.viewers, [item.id]);
+  const [input, setInput] = useRecyclingState('', [item.id]);
+  const [isInputFocused, setIsInputFocused] = useRecyclingState(false, [item.id]);
+  const [currentInteraction, setCurrentInteraction] = useRecyclingState(genInteraction, [item.id]);
 
   const livePulse = useRef(new Animated.Value(0)).current;
   const msgIdRef = useRef(0);
@@ -347,6 +384,8 @@ const LiveCard = memo(function LiveCard({
 
   // pulsar do ponto "AO VIVO"
   useEffect(() => {
+    livePulse.setValue(0);
+    if (!playing) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(livePulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
@@ -355,27 +394,7 @@ const LiveCard = memo(function LiveCard({
     );
     loop.start();
     return () => loop.stop();
-  }, [livePulse]);
-
-  // tocar/pausar conforme página visível + foco da tela
-  useEffect(() => {
-    if (playing) {
-      player.play();
-      return;
-    }
-    player.pause();
-  }, [player, playing]);
-
-  // resync ao reciclar a página (FlashList) para outra live
-  useEffect(() => {
-    setChat(item.chat);
-    setLikeCount(item.host.likes);
-    setViewers(item.viewers);
-    setFollow(!!item.host.following);
-    setInput('');
-    setIsInputFocused(false);
-    setCurrentInteraction(genInteraction());
-  }, [item.id, item.chat, item.host.likes, item.host.following, item.viewers]);
+  }, [item.id, livePulse, playing]);
 
   useEffect(() => {
     const subscription = Keyboard.addListener('keyboardDidHide', () => {
@@ -391,17 +410,17 @@ const LiveCard = memo(function LiveCard({
     const interval = setInterval(() => {
       setCurrentInteraction(genInteraction());
       setViewers((value) => Math.max(50, value + Math.round(Math.random() * 44 - 20)));
-      setLikeCount((value) => value + 3 + Math.floor(Math.random() * 13));
+      addLikes(item.id, item.host.likes, 3 + Math.floor(Math.random() * 13));
     }, 2800);
     return () => clearInterval(interval);
-  }, [playing]);
+  }, [addLikes, item.id, item.host.likes, playing]);
 
   const registerLike = useCallback((x: number, y: number) => {
-    setLikeCount((value) => value + 1);
+    addLikes(item.id, item.host.likes, 1);
     heartsRef.current?.spawn(x, y);
     // mantém o efeito de coração na lateral
     heartsRef.current?.spawn(width - 38, height - insets.bottom - 160);
-  }, [insets.bottom]);
+  }, [addLikes, height, insets.bottom, item.host.likes, item.id, width]);
 
   const onVideoPress = useCallback((event: GestureResponderEvent) => {
     if (isInputFocused) {
@@ -424,16 +443,15 @@ const LiveCard = memo(function LiveCard({
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    setChat((prev) => [
-      ...prev,
-      { id: `me-${msgIdRef.current++}`, kind: 'message', user: SELF.name, avatar: SELF.avatar, text },
-    ]);
+    addMessage(item.id, {
+      id: `me-${Date.now()}-${msgIdRef.current++}`, kind: 'message', user: SELF.name, avatar: SELF.avatar, text,
+    });
     setInput('');
-  }, [input]);
+  }, [addMessage, input, item.id]);
 
   const chatMessages = useMemo(() => {
-    return chat.filter((c) => c.kind === 'message');
-  }, [chat]);
+    return [...item.chat, ...localMessages].filter((c) => c.kind === 'message');
+  }, [item.chat, localMessages]);
   const visibleMessageCount = isInputFocused ? CHAT_FOCUSED_VISIBLE_COUNT : CHAT_VISIBLE_COUNT;
 
   const livePulseStyle = {
@@ -442,17 +460,10 @@ const LiveCard = memo(function LiveCard({
   };
 
   return (
-    <View style={styles.page}>
+    <View style={[styles.page, { width, height }]}>
       {/* vídeo (tap em qualquer lugar curte no ponto do toque) */}
       <Pressable style={styles.videoTouch} onPress={onVideoPress}>
-        <VideoView
-          player={player}
-          style={styles.video}
-          contentFit="cover"
-          nativeControls={false}
-          surfaceType="textureView"
-          useExoShutter={false}
-        />
+        {preload && <LiveVideo uri={item.videoUrl} playing={playing} />}
       </Pressable>
 
       {/* gradientes de leitura (topo e base) */}
@@ -472,7 +483,7 @@ const LiveCard = memo(function LiveCard({
         <View style={styles.topRow}>
           {/* card do host */}
           <View style={styles.hostCard}>
-            <Image source={{ uri: item.host.avatar }} style={styles.hostAvatar} contentFit="cover" cachePolicy="memory-disk" />
+            <Image source={{ uri: item.host.avatar }} style={styles.hostAvatar} contentFit="cover" cachePolicy="memory-disk" recyclingKey={item.host.avatar} />
             <View style={styles.hostMeta}>
               <Text style={styles.hostName} numberOfLines={1}>{item.host.name}</Text>
               <View style={styles.hostSub}>
@@ -525,6 +536,7 @@ const LiveCard = memo(function LiveCard({
         style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 8 }, bottomAnimStyle]}
       >
         <ChatList
+          width={width}
           messages={chatMessages}
           visibleCount={visibleMessageCount}
           onBlankPress={onBlankCommentAreaPress}
@@ -589,7 +601,7 @@ const LiveCard = memo(function LiveCard({
       </Reanimated.View>
 
       {/* corações flutuantes por cima de tudo (isolado) */}
-      <FloatingHearts ref={heartsRef} />
+      <FloatingHearts key={item.id} ref={heartsRef} />
     </View>
   );
 });
@@ -598,14 +610,36 @@ const LiveCard = memo(function LiveCard({
    Tela principal (lista vertical com paging)
 ========================================= */
 export default function Live({ navigation }: RootStackScreenProps<'Live'>) {
-  const isFocused = useIsFocused();
+  const playbackActive = useScreenPlaybackActive();
+  const window = useWindowDimensions();
+  const [viewport, setViewport] = useState({ width: window.width, height: window.height });
+  const { width, height } = viewport;
   const insets = useSafeAreaInsets();
-  const { data } = useLives(isFocused);
+  const { data } = useLives(playbackActive);
+  const listRef = useRef<FlashListRef<LiveStream>>(null);
+  const loadedRef = useRef(false);
 
-  const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [anchorId, setAnchorId] = useState<string | null>(data[0]?.id ?? null);
+  const activeIndex = data.findIndex((item) => item.id === anchorId);
+  const indexRef = useRef(activeIndex);
+  indexRef.current = activeIndex;
+  const nextId = data[activeIndex + 1]?.id;
 
   useEffect(() => {
-    setActiveId((current) => current ?? data[0]?.id ?? null);
+    if (!loadedRef.current || indexRef.current < 0) return;
+    const index = indexRef.current;
+    const frame = requestAnimationFrame(() => {
+      void listRef.current?.scrollToIndex({ index, animated: false }).catch(() => {
+        // A concurrent data/layout update can invalidate the target; viewability will resync it.
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [height, width]);
+
+  useEffect(() => {
+    setAnchorId((current) => data.some((item) => item.id === current) ? current : data[0]?.id ?? null);
+    setActiveId((current) => data.some((item) => item.id === current) ? current : null);
   }, [data]);
 
   const isLive = (item: unknown): item is LiveStream => (
@@ -619,12 +653,14 @@ export default function Live({ navigation }: RootStackScreenProps<'Live'>) {
     const viewableItem = viewableItems.find((token: ViewToken<LiveStream>) => token.isViewable);
 
     if (!isLive(viewableItem?.item)) {
+      setActiveId(null);
       return;
     }
 
     setActiveId((currentId) => (
       currentId === viewableItem.item.id ? currentId : viewableItem.item.id
     ));
+    setAnchorId(viewableItem.item.id);
   }).current;
 
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 80 });
@@ -637,24 +673,33 @@ export default function Live({ navigation }: RootStackScreenProps<'Live'>) {
     ({ item }: { item: LiveStream }) => (
       <LiveCard
         item={item}
-        playing={isFocused && item.id === activeId}
+        playing={playbackActive && item.id === activeId}
+        preload={playbackActive && (item.id === anchorId || item.id === nextId)}
+        width={width}
+        height={height}
         insets={insets}
         onClose={handleClose}
       />
     ),
-    [activeId, handleClose, insets, isFocused]
+    [activeId, anchorId, handleClose, height, insets, nextId, playbackActive, width]
   );
 
   return (
-    <View style={styles.root}>
+    <View style={styles.root} onLayout={({ nativeEvent: { layout } }) => {
+      setViewport((current) => current.width === layout.width && current.height === layout.height
+        ? current : { width: layout.width, height: layout.height });
+    }}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
 
       <FlashList
+        ref={listRef}
         data={data}
         drawDistance={height}
-        keyExtractor={(i) => i.id}
+        keyExtractor={liveKeyExtractor}
         renderItem={renderItem}
-        getItemType={() => 'live'}
+        getItemType={liveGetItemType}
+        onLoad={() => { loadedRef.current = true; }}
+        maintainVisibleContentPosition={{ disabled: true }}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
@@ -673,9 +718,10 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
   /* Página da live */
-  page: { width, height, justifyContent: 'center', alignItems: 'center' },
-  videoTouch: { position: 'absolute', width, height },
-  video: { width, height, backgroundColor: '#000' },
+  page: { justifyContent: 'center', alignItems: 'center' },
+  videoTouch: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  video: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  videoError: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24 },
 
   topShade: { position: 'absolute', top: 0, left: 0, right: 0, height: 200 },
   bottomShade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 360 },

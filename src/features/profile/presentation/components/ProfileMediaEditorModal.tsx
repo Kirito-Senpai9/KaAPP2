@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Modal,
   Pressable,
@@ -7,9 +7,10 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -56,10 +57,13 @@ export function ProfileMediaEditorModal({
   onConfirm,
 }: ProfileMediaEditorModalProps) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
-  const bannerAspectRatio = windowWidth / PROFILE_BANNER_HEIGHT;
-  const avatarViewportSize = Math.min(windowWidth - 56, 284);
-  const bannerViewportWidth = windowWidth - 24;
+  const playbackActive = useScreenPlaybackActive();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const contentWidth = Math.max(1, windowWidth - insets.left - insets.right);
+  const editorHeight = Math.max(1, windowHeight - insets.top - insets.bottom - 138);
+  const bannerAspectRatio = contentWidth / PROFILE_BANNER_HEIGHT;
+  const avatarViewportSize = Math.max(1, Math.min(contentWidth - 56, 284, editorHeight));
+  const bannerViewportWidth = Math.max(1, Math.min(contentWidth - 24, editorHeight * bannerAspectRatio));
   const bannerViewportHeight = bannerViewportWidth / bannerAspectRatio;
   const viewportWidth = kind === 'banner' ? bannerViewportWidth : avatarViewportSize;
   const viewportHeight = kind === 'banner' ? bannerViewportHeight : avatarViewportSize;
@@ -91,16 +95,26 @@ export function ProfileMediaEditorModal({
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
   const pinchStartScale = useSharedValue(PROFILE_MEDIA_MIN_ZOOM);
+  const previousViewport = useRef<{ media: ProfileMedia; kind: EditableImageKind | null; width: number; height: number } | null>(null);
 
   useEffect(() => {
-    if (!visible || !initialResolvedTransform) {
+    if (!visible || !media || !initialResolvedTransform) {
+      previousViewport.current = null;
       return;
     }
 
-    scale.value = initialResolvedTransform.zoom;
-    translateX.value = initialResolvedTransform.translateX;
-    translateY.value = initialResolvedTransform.translateY;
-  }, [initialResolvedTransform, scale, translateX, translateY, visible]);
+    const previous = previousViewport.current;
+    const resolved = previous?.media === media && previous.kind === kind
+      ? getResolvedProfileMediaTransform({
+        ...media,
+        transform: createTransformFromOffsets(media, previous.width, previous.height, scale.value, translateX.value, translateY.value),
+      }, viewportWidth, viewportHeight)
+      : initialResolvedTransform;
+    scale.value = resolved.zoom;
+    translateX.value = resolved.translateX;
+    translateY.value = resolved.translateY;
+    previousViewport.current = { media, kind, width: viewportWidth, height: viewportHeight };
+  }, [initialResolvedTransform, kind, media, scale, translateX, translateY, viewportHeight, viewportWidth, visible]);
 
   const resetTransform = useCallback(() => {
     scale.value = withSpring(PROFILE_MEDIA_MIN_ZOOM, { damping: 18, stiffness: 220, mass: 0.84 });
@@ -201,6 +215,7 @@ export function ProfileMediaEditorModal({
       statusBarTranslucent
       onRequestClose={onCancel}
     >
+      <GestureHandlerRootView style={styles.root}>
       <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.header}>
           <Pressable
@@ -253,6 +268,7 @@ export function ProfileMediaEditorModal({
                     style={styles.mediaImage}
                     contentFit="cover"
                     cachePolicy="memory-disk"
+                    autoplay={visible && playbackActive}
                     recyclingKey={media.uri}
                     accessibilityLabel={isAvatar ? 'Editor da foto de perfil' : 'Editor do banner de perfil'}
                   />
@@ -271,7 +287,7 @@ export function ProfileMediaEditorModal({
           </GestureDetector>
         </View>
 
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+        <View style={[styles.footer, { paddingBottom: 18 }]}>
           <Pressable
             style={styles.footerButton}
             onPress={resetTransform}
@@ -283,6 +299,7 @@ export function ProfileMediaEditorModal({
           </Pressable>
         </View>
       </SafeAreaView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

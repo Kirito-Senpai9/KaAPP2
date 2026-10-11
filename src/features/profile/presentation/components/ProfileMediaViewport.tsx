@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
 import type { ProfileMedia } from '@/features/profile/presentation/store/useProfileStore';
 import {
   createProfileMediaSource,
@@ -17,7 +18,7 @@ type ProfileMediaViewportProps = {
   accessibilityLabel: string;
 };
 
-export function ProfileMediaViewport({
+export const ProfileMediaViewport = memo(function ProfileMediaViewport({
   media,
   viewportWidth,
   viewportHeight,
@@ -25,6 +26,7 @@ export function ProfileMediaViewport({
   style,
   accessibilityLabel,
 }: ProfileMediaViewportProps) {
+  const playbackActive = useScreenPlaybackActive();
   const resolved = useMemo(
     () => getResolvedProfileMediaTransform(media, viewportWidth, viewportHeight),
     [media, viewportHeight, viewportWidth]
@@ -63,6 +65,7 @@ export function ProfileMediaViewport({
             style={styles.image}
             contentFit="cover"
             cachePolicy="memory-disk"
+            autoplay={playbackActive}
             recyclingKey={media.uri}
             accessibilityLabel={accessibilityLabel}
           />
@@ -70,7 +73,7 @@ export function ProfileMediaViewport({
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   viewport: {

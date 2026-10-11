@@ -1,12 +1,14 @@
 import React from 'react';
 import {
-  Dimensions,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { getTabBarOccupiedHeight } from '@/shared/utils/tabBarLayout';
+import { useFeedUiStore } from '@/features/feed/presentation/store/useFeedUiStore';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler';
@@ -19,7 +21,6 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 
-const { width } = Dimensions.get('window');
 
 const ACTION_TIMING = {
   duration: 110,
@@ -238,9 +239,11 @@ type KzonePlaceholderProps = {
   titlePan: PanGesture;
   topInset: number;
   onBack: () => void;
+  pageWidth: number;
+  bottomInset: number;
 };
 
-function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps) {
+function KzonePlaceholder({ titlePan, topInset, onBack, pageWidth, bottomInset }: KzonePlaceholderProps) {
   const renderPost = React.useCallback(
     ({ item }: { item: KzonePreviewPost }) => <KzonePostPreview post={item} />,
     [],
@@ -254,7 +257,7 @@ function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps)
   const getItemType = React.useCallback(() => 'post', []);
 
   return (
-    <View style={styles.page}>
+    <View style={[styles.page, { width: pageWidth }]}>
       <View style={[styles.topBar, { paddingTop: topInset }]}>
         <GestureDetector gesture={titlePan}>
           <View
@@ -301,7 +304,7 @@ function KzonePlaceholder({ titlePan, topInset, onBack }: KzonePlaceholderProps)
         keyExtractor={keyExtractor}
         getItemType={getItemType}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: getTabBarOccupiedHeight(bottomInset, Platform.OS) + 2 }]}
       />
     </View>
   );
@@ -314,28 +317,28 @@ type KzonePostPreviewProps = {
 const KzonePostPreview = React.memo(function KzonePostPreview({
   post,
 }: KzonePostPreviewProps) {
-  const [isLiked, setIsLiked] = React.useState(false);
-  const [isReposted, setIsReposted] = React.useState(false);
-  const [isShared, setIsShared] = React.useState(false);
-  const [replyPulseCount, setReplyPulseCount] = React.useState(0);
-  const [shareTapCount, setShareTapCount] = React.useState(0);
+  const isLiked = useFeedUiStore((state) => state.kzoneInteractions[post.id]?.liked ?? false);
+  const isReposted = useFeedUiStore((state) => state.kzoneInteractions[post.id]?.reposted ?? false);
+  const replyPulseCount = useFeedUiStore((state) => state.kzoneInteractions[post.id]?.replyCount ?? 0);
+  const shareTapCount = useFeedUiStore((state) => state.kzoneInteractions[post.id]?.shareCount ?? 0);
+  const isShared = shareTapCount > 0;
+  const update = useFeedUiStore((state) => state.updateKzoneInteraction);
 
   const handleReplyPress = React.useCallback(() => {
-    setReplyPulseCount((count) => count + 1);
-  }, []);
+    update(post.id, (current) => ({ replyCount: current.replyCount + 1 }));
+  }, [post.id, update]);
 
   const handleRepostPress = React.useCallback(() => {
-    setIsReposted((value) => !value);
-  }, []);
+    update(post.id, (current) => ({ reposted: !current.reposted }));
+  }, [post.id, update]);
 
   const handleLikePress = React.useCallback(() => {
-    setIsLiked((value) => !value);
-  }, []);
+    update(post.id, (current) => ({ liked: !current.liked }));
+  }, [post.id, update]);
 
   const handleSharePress = React.useCallback(() => {
-    setIsShared(true);
-    setShareTapCount((count) => count + 1);
-  }, []);
+    update(post.id, (current) => ({ shareCount: current.shareCount + 1 }));
+  }, [post.id, update]);
 
   return (
     <View style={styles.post}>
@@ -616,7 +619,6 @@ export default KzonePlaceholder;
 
 const styles = StyleSheet.create({
   page: {
-    width,
     flex: 1,
     backgroundColor: '#090B14',
   },
@@ -850,4 +852,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
 });
+
+
 

@@ -12,51 +12,42 @@ import type {
 import CommentInput from '@/features/comments/presentation/components/BottomSheetComments/CommentInput';
 
 type ComposerFooterSnapshot = {
+  postId: string;
   currentUser: CommentAuthor;
-  input: string;
   replyingTo: CommentReplyTarget | null;
   bottomPadding: number;
   inputRef: React.RefObject<React.ComponentRef<typeof BottomSheetTextInput> | null>;
-  onChangeText: (value: string) => void;
   onFocus: () => void;
   onBlur: () => void;
   onCancelReply: () => void;
-  onSend: () => void;
+  onSend: (content: string) => boolean;
   onSendPressIn: () => void;
   onLayout: (event: LayoutChangeEvent) => void;
 };
 
 type Listener = () => void;
 
-let composerFooterSnapshot: ComposerFooterSnapshot | null = null;
-const listeners = new Set<Listener>();
-
-function emitChange() {
-  listeners.forEach((listener) => listener());
-}
-
-function subscribe(listener: Listener) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
+export function createComposerFooterStore() {
+  let snapshot: ComposerFooterSnapshot | null = null;
+  const listeners = new Set<Listener>();
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener: Listener) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    setSnapshot: (nextSnapshot: ComposerFooterSnapshot | null) => {
+      if (snapshot === nextSnapshot) return;
+      snapshot = nextSnapshot;
+      listeners.forEach((listener) => listener());
+    },
   };
 }
 
-function getSnapshot() {
-  return composerFooterSnapshot;
-}
-
-export function setComposerFooterSnapshot(
-  nextSnapshot: ComposerFooterSnapshot | null
-) {
-  composerFooterSnapshot = nextSnapshot;
-  emitChange();
-}
-
 const CommentsComposerFooter = memo(function CommentsComposerFooter(
-  props: BottomSheetFooterProps
+  { store, ...props }: BottomSheetFooterProps & { store: ReturnType<typeof createComposerFooterStore> }
 ) {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 
   if (!snapshot) {
     return null;
@@ -65,12 +56,11 @@ const CommentsComposerFooter = memo(function CommentsComposerFooter(
   return (
     <BottomSheetFooter {...props} bottomInset={0}>
       <CommentInput
+        key={snapshot.postId}
         ref={snapshot.inputRef}
         currentUser={snapshot.currentUser}
-        value={snapshot.input}
         replyingTo={snapshot.replyingTo}
         bottomPadding={snapshot.bottomPadding}
-        onChangeText={snapshot.onChangeText}
         onFocus={snapshot.onFocus}
         onBlur={snapshot.onBlur}
         onCancelReply={snapshot.onCancelReply}

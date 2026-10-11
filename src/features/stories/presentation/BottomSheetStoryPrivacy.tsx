@@ -9,13 +9,14 @@ import {
 import {
   BottomSheetBackdrop,
   BottomSheetFooter,
-  BottomSheetFlatList,
   BottomSheetModal,
   BottomSheetTextInput,
+  useBottomSheetScrollableCreator,
   type BottomSheetBackdropProps,
   type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -43,6 +44,9 @@ type PrivacyPresetOption = {
 };
 
 type PrivacySheetItem = PrivacyPresetOption | StoryPrivacyPerson;
+const keyExtractor = (item: PrivacySheetItem) => 'preset' in item ? item.preset : item.id;
+const getItemType = (item: PrivacySheetItem) => 'preset' in item ? 'preset' : 'person';
+const maintainVisibleContentPosition = { disabled: true };
 
 const PRIVACY_PRESET_OPTIONS: PrivacyPresetOption[] = [
   {
@@ -95,6 +99,7 @@ function BottomSheetStoryPrivacyComponent({
 }: BottomSheetStoryPrivacyProps) {
   const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
+  const renderScrollComponent = useBottomSheetScrollableCreator();
   const [footerHeight, setFooterHeight] = useState(0);
   const snapPoints = useMemo(() => ['62%', '92%'], []);
   const {
@@ -341,6 +346,10 @@ function BottomSheetStoryPrivacyComponent({
     [selectedPeopleIds, togglePerson]
   );
 
+  const renderItem = useCallback(({ item }: { item: PrivacySheetItem }) => (
+    'preset' in item ? renderPresetItem({ item }) : renderPersonItem({ item })
+  ), [renderPersonItem, renderPresetItem]);
+
   return (
     <BottomSheetModal
       ref={modalRef}
@@ -366,12 +375,13 @@ function BottomSheetStoryPrivacyComponent({
         />
       )}
     >
-      <BottomSheetFlatList
+      <FlashList<PrivacySheetItem>
         data={isEditingList ? filteredPeople : PRIVACY_PRESET_OPTIONS}
-        keyExtractor={(item: PrivacySheetItem) =>
-          'preset' in item ? item.preset : item.id
-        }
-        renderItem={isEditingList ? renderPersonItem : renderPresetItem}
+        keyExtractor={keyExtractor}
+        getItemType={getItemType}
+        renderItem={renderItem}
+        renderScrollComponent={renderScrollComponent}
+        maintainVisibleContentPosition={maintainVisibleContentPosition}
         ListHeaderComponent={isEditingList ? editorHeader : mainHeader}
         ListEmptyComponent={
           isEditingList ? (

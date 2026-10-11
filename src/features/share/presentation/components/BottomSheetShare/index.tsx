@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import {
   Alert,
-  InteractionManager,
+  Platform,
   Pressable,
   Share,
   StyleSheet,
@@ -19,18 +19,21 @@ import {
 import {
   BottomSheetBackdrop,
   BottomSheetFooter,
-  BottomSheetFlatList,
   BottomSheetModal,
   BottomSheetTextInput,
+  useBottomSheetScrollableCreator,
   type BottomSheetBackdropProps,
   type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { FlashList } from '@shopify/flash-list';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildShareTargetList } from '@/features/share/application/use-cases/shareTargets';
+import { createDismissActionQueue, shouldCountExternalShare } from '@/features/share/application/use-cases/shareCompletion';
 import type {
   SharePostPreview,
   ShareTarget,
@@ -55,6 +58,9 @@ export type BottomSheetShareProps = {
 };
 
 const EMPTY_TARGETS: ShareTarget[] = [];
+const keyExtractor = (item: ShareListRow) => item.id;
+const getItemType = () => 'share-target-row';
+const maintainVisibleContentPosition = { disabled: true };
 
 function chunkTargets(targets: ShareTarget[], size: number) {
   const rows: ShareTarget[][] = [];
@@ -78,6 +84,8 @@ function BottomSheetShareComponent({
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const modalRef = useRef<BottomSheetModal>(null);
+  const [dismissActions] = useState(createDismissActionQueue);
+  const renderScrollComponent = useBottomSheetScrollableCreator();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [footerHeight, setFooterHeight] = useState(0);
@@ -92,9 +100,22 @@ function BottomSheetShareComponent({
   }, []);
 
   const handleDismiss = useCallback(() => {
+    const action = dismissActions.take();
     resetState();
     onClose();
-  }, [onClose, resetState]);
+    if (action) {
+      void Promise.resolve().then(action).catch(() => {
+        Alert.alert('Nao foi possivel compartilhar', 'Tente novamente em alguns instantes.');
+      });
+    }
+  }, [dismissActions, onClose, resetState]);
+
+  const dismissWithAction = useCallback((action: () => void | Promise<void>) => {
+    if (!visible || !post || !modalRef.current || !dismissActions.enqueue(action)) return;
+    modalRef.current.dismiss();
+  }, [dismissActions, post, visible]);
+
+  useEffect(() => () => dismissActions.clear(), [dismissActions]);
 
   useEffect(() => {
     if (!visible || !post) {
@@ -113,8 +134,8 @@ function BottomSheetShareComponent({
 
   const rows = useMemo<ShareListRow[]>(
     () =>
-      chunkTargets(orderedTargets, 4).map((targetsChunk, rowIndex) => ({
-        id: `targets-${rowIndex}`,
+      chunkTargets(orderedTargets, 4).map((targetsChunk) => ({
+        id: JSON.stringify(targetsChunk.map((target) => target.id)),
         targets: targetsChunk,
       })),
     [orderedTargets]
@@ -164,12 +185,9 @@ function BottomSheetShareComponent({
         ? selectedTargets[0].name
         : `${selectedTargets.length} contatos e comunidades`;
 
-    onShareIncrement?.(post.id, selectedTargets.length);
-    markShared(selectedIds);
-    onClose();
-    resetState();
-
-    InteractionManager.runAfterInteractions(() => {
+    dismissWithAction(() => {
+      onShareIncrement?.(post.id, selectedTargets.length);
+      markShared(selectedIds);
       Alert.alert(
         'Compartilhado',
         `${shareContextLabel} enviado para ${destinationLabel}.`
@@ -177,10 +195,9 @@ function BottomSheetShareComponent({
     });
   }, [
     markShared,
-    onClose,
+    dismissWithAction,
     onShareIncrement,
     post,
-    resetState,
     selectedCount,
     selectedIds,
     selectedTargets,
@@ -192,17 +209,14 @@ function BottomSheetShareComponent({
       return;
     }
 
-    onClose();
-    resetState();
-
-    InteractionManager.runAfterInteractions(async () => {
+    dismissWithAction(async () => {
       try {
         const result = await Share.share({
           message: shareMessage,
           ...(post.mediaUri ? { url: post.mediaUri } : {}),
         });
 
-        if (result.action === Share.sharedAction) {
+        if (shouldCountExternalShare(Platform.OS, result.action)) {
           onShareIncrement?.(post.id, 1);
         }
       } catch {
@@ -212,24 +226,21 @@ function BottomSheetShareComponent({
         );
       }
     });
-  }, [onClose, onShareIncrement, post, resetState, shareMessage]);
+  }, [dismissWithAction, onShareIncrement, post, shareMessage]);
 
   const handleAddToStory = useCallback(() => {
     if (!post) {
       return;
     }
 
-    onClose();
-    resetState();
-
-    InteractionManager.runAfterInteractions(() => {
+    dismissWithAction(() => {
       navigation.navigate('CriarStories', {
         uri: post.mediaUri,
         type: post.mediaType,
         caption: post.caption ?? post.text,
       });
     });
-  }, [navigation, onClose, post, resetState]);
+  }, [dismissWithAction, navigation, post]);
 
   const renderHeader = useMemo(
     () => (
@@ -399,9 +410,12 @@ function BottomSheetShareComponent({
       handleIndicatorStyle={styles.grabHandle}
       backgroundStyle={styles.sheetBackground}
     >
-      <BottomSheetFlatList
+      <FlashList
         data={rows}
-        keyExtractor={(item: ShareListRow) => item.id}
+        keyExtractor={keyExtractor}
+        getItemType={getItemType}
+        renderScrollComponent={renderScrollComponent}
+        maintainVisibleContentPosition={maintainVisibleContentPosition}
         renderItem={renderItem}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={

@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Pressable, StyleSheet, Platform } from 'react-native';
 import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getTabBarBottomPadding, TAB_BAR_HEIGHT, TAB_BAR_TOP_PADDING } from '@/shared/utils/tabBarLayout';
 import { BlurView } from 'expo-blur';
 import Animated, {
   Easing,
@@ -134,8 +136,13 @@ function TabIcon({
 }
 
 function KachanTabBar({ state, navigation }: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
   return (
-    <View pointerEvents="box-none" style={styles.wrap}>
+    <View pointerEvents="box-none" style={[styles.wrap, {
+      paddingBottom: getTabBarBottomPadding(insets.bottom, Platform.OS),
+      paddingLeft: insets.left + 14,
+      paddingRight: insets.right + 14,
+    }]}>
       <View style={styles.glassBar}>
         <BlurView intensity={95} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.tintLayer} />
@@ -196,7 +203,7 @@ export default function KachanTabs() {
   );
 }
 
-const H = 78;
+const H = TAB_BAR_HEIGHT;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -205,8 +212,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 14,
-    paddingBottom: Platform.select({ ios: 22, android: 14 }),
-    paddingTop: 10,
+    paddingTop: TAB_BAR_TOP_PADDING,
   },
   glassBar: {
     height: H,

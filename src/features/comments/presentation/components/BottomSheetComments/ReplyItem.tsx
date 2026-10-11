@@ -1,19 +1,17 @@
 import React, { memo } from 'react';
 import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
-import type { CommentNode, CommentListRow } from '@/features/comments/domain/entities/comment';
+import type { CommentNode } from '@/features/comments/domain/entities/comment';
 import CommentActions from '@/features/comments/presentation/components/BottomSheetComments/CommentActions';
 import { formatRelativeTime } from '@/features/comments/presentation/components/BottomSheetComments/formatRelativeTime';
 
 type ReplyItemProps = {
-  row: Extract<CommentListRow, { type: 'reply' }>;
+  comment: CommentNode;
   onReply: (comment: CommentNode) => void;
   onLike: (commentId: string) => void;
 };
 
-function ReplyItemComponent({ row, onReply, onLike }: ReplyItemProps) {
-  const { comment } = row;
-
+function ReplyItemComponent({ comment, onReply, onLike }: ReplyItemProps) {
   return (
     <View style={styles.container}>
       <Image

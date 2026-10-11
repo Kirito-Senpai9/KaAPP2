@@ -3,6 +3,7 @@ import type {
   CommentNode,
 } from '@/features/comments/domain/entities/comment';
 import type { CommentsRepository } from '@/features/comments/domain/repositories/commentsRepository';
+import { normalizeCommentOrder } from '@/features/comments/application/use-cases/commentThread';
 
 type CommentFixture = {
   id: string;
@@ -178,7 +179,7 @@ const commentsStore = new Map<string, CommentNode[]>();
 
 function getInitialComments(postId: string) {
   const fixtures = COMMENT_FIXTURES[postId] ?? COMMENT_FIXTURES.p1;
-  return fixtures.map(fixtureToNode);
+  return normalizeCommentOrder(fixtures.map(fixtureToNode));
 }
 
 function ensureComments(postId: string) {

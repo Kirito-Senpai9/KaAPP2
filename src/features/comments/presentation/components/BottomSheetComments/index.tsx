@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  InteractionManager,
+  Alert,
   Keyboard,
   type LayoutChangeEvent,
   StyleSheet,
@@ -12,11 +12,13 @@ import {
   BottomSheetModal,
   BottomSheetTextInput,
   type BottomSheetBackdropProps,
+  type BottomSheetFooterProps,
 } from '@gorhom/bottom-sheet';
+import type { FlashListRef } from '@shopify/flash-list';
 import CommentList from '@/features/comments/presentation/components/BottomSheetComments/CommentList';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CommentsComposerFooter, {
-  setComposerFooterSnapshot,
+  createComposerFooterStore,
 } from '@/features/comments/presentation/components/BottomSheetComments/CommentsComposerFooter';
 import { useComments } from '@/features/comments/presentation/hooks/useComments';
 import type {
@@ -44,15 +46,20 @@ export default function BottomSheetComments({
 }: BottomSheetCommentsProps) {
   const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
-  const listRef = useRef<any>(null);
+  const listRef = useRef<FlashListRef<CommentListRow>>(null);
   const inputRef = useRef<React.ComponentRef<typeof BottomSheetTextInput>>(null);
-  const focusTaskRef = useRef<ReturnType<
-    typeof InteractionManager.runAfterInteractions
-  > | null>(null);
+  const [composerStore] = useState(createComposerFooterStore);
+  const setComposerFooterSnapshot = composerStore.setSnapshot;
+  const renderComposerFooter = useMemo(
+    () => function ComposerFooter(props: BottomSheetFooterProps) {
+      return <CommentsComposerFooter {...props} store={composerStore} />;
+    },
+    [composerStore]
+  );
   const focusFrameRef = useRef<number | null>(null);
   const focusRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingScrollRowIdRef = useRef<string | null>(null);
-  const pendingScrollIndexRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const shouldAutoFocusRef = useRef(false);
   const isAtFinalSnapRef = useRef(false);
   const isInputFocusedRef = useRef(false);
@@ -62,8 +69,6 @@ export default function BottomSheetComments({
   const {
     currentUser,
     rows,
-    input,
-    setInput,
     replyingTo,
     isLoading,
     totalCount,
@@ -76,11 +81,18 @@ export default function BottomSheetComments({
   } = useComments(post?.id ?? null, initialCount);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerHeight, setComposerHeight] = useState(0);
+  const [isListReady, setIsListReady] = useState(false);
+  const handleListLoad = useCallback(() => setIsListReady(true), []);
+
+  const clearPendingScroll = useCallback(() => {
+    pendingScrollRowIdRef.current = null;
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+  }, []);
 
   const clearPendingFocus = useCallback(() => {
-    focusTaskRef.current?.cancel();
-    focusTaskRef.current = null;
-
     if (focusFrameRef.current !== null) {
       cancelAnimationFrame(focusFrameRef.current);
       focusFrameRef.current = null;
@@ -102,25 +114,22 @@ export default function BottomSheetComments({
       if (!force && isInputFocusedRef.current) return;
 
       clearPendingFocus();
-      focusTaskRef.current = InteractionManager.runAfterInteractions(() => {
-        focusTaskRef.current = null;
-        focusFrameRef.current = requestAnimationFrame(() => {
-          inputRef.current?.focus();
-          focusFrameRef.current = null;
+      focusFrameRef.current = requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        focusFrameRef.current = null;
 
-          if (
-            !isInputFocusedRef.current &&
-            attempt < 4 &&
-            visible &&
-            !!post &&
-            isAtFinalSnapRef.current
-          ) {
-            focusRetryTimeoutRef.current = setTimeout(() => {
-              focusRetryTimeoutRef.current = null;
-              scheduleComposerFocus(attempt + 1, true);
-            }, 70 + attempt * 45);
-          }
-        });
+        if (
+          !isInputFocusedRef.current &&
+          attempt < 4 &&
+          visible &&
+          !!post &&
+          isAtFinalSnapRef.current
+        ) {
+          focusRetryTimeoutRef.current = setTimeout(() => {
+            focusRetryTimeoutRef.current = null;
+            scheduleComposerFocus(attempt + 1, true);
+          }, 70 + attempt * 45);
+        }
       });
     },
     [clearPendingFocus, post, visible]
@@ -174,14 +183,24 @@ export default function BottomSheetComments({
     retainFocusOnActionRef.current = true;
   }, []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback((content: string) => {
     const shouldRestoreFocus =
       isInputFocusedRef.current || retainFocusOnActionRef.current;
-    const nextRowId = sendComment();
-
-    if (nextRowId) {
-      pendingScrollRowIdRef.current = nextRowId;
+    let nextRowId: string | null;
+    try {
+      nextRowId = sendComment(content);
+    } catch {
+      clearRetainedFocus();
+      Alert.alert('Nao foi possivel comentar', 'Seu texto foi mantido. Tente novamente.');
+      return false;
     }
+
+    if (!nextRowId) {
+      clearRetainedFocus();
+      return false;
+    }
+
+    pendingScrollRowIdRef.current = nextRowId;
 
     if (shouldRestoreFocus) {
       setIsComposerFocused(true);
@@ -190,6 +209,7 @@ export default function BottomSheetComments({
       clearRetainedFocus();
       setIsComposerFocused(false);
     }
+    return true;
   }, [clearRetainedFocus, ensureComposerFocused, sendComment]);
 
   const handleSheetChange = useCallback(
@@ -209,17 +229,17 @@ export default function BottomSheetComments({
     shouldAutoFocusRef.current = false;
     isAtFinalSnapRef.current = false;
     isInputFocusedRef.current = false;
-    pendingScrollRowIdRef.current = null;
-    pendingScrollIndexRef.current = null;
+    clearPendingScroll();
     clearRetainedFocus();
     clearPendingFocus();
     setIsComposerFocused(false);
+    setIsListReady(false);
     setComposerFooterSnapshot(null);
     Keyboard.dismiss();
     inputRef.current?.blur();
     resetTransientState();
     onClose();
-  }, [clearPendingFocus, clearRetainedFocus, onClose, resetTransientState]);
+  }, [clearPendingFocus, clearPendingScroll, clearRetainedFocus, onClose, resetTransientState, setComposerFooterSnapshot]);
 
   useEffect(() => {
     if (!visible || !post || !onCountChange || isLoading) {
@@ -234,11 +254,11 @@ export default function BottomSheetComments({
       shouldAutoFocusRef.current = false;
       isAtFinalSnapRef.current = false;
       isInputFocusedRef.current = false;
-      pendingScrollRowIdRef.current = null;
-      pendingScrollIndexRef.current = null;
+      clearPendingScroll();
       clearRetainedFocus();
       clearPendingFocus();
       setIsComposerFocused(false);
+      setIsListReady(false);
       setComposerFooterSnapshot(null);
       modalRef.current?.dismiss();
       return;
@@ -246,25 +266,30 @@ export default function BottomSheetComments({
 
     shouldAutoFocusRef.current = autoFocusOnOpen;
     isAtFinalSnapRef.current = false;
+    clearPendingScroll();
+    setIsListReady(false);
     modalRef.current?.present();
   }, [
     autoFocusOnOpen,
     clearPendingFocus,
+    clearPendingScroll,
     clearRetainedFocus,
     post,
+    setComposerFooterSnapshot,
     visible,
   ]);
 
   useEffect(
     () => () => {
       clearPendingFocus();
+      clearPendingScroll();
       setComposerFooterSnapshot(null);
     },
-    [clearPendingFocus]
+    [clearPendingFocus, clearPendingScroll, setComposerFooterSnapshot]
   );
 
   useEffect(() => {
-    if (!pendingScrollRowIdRef.current || rows.length === 0) {
+    if (!visible || !post || !isListReady || !pendingScrollRowIdRef.current || rows.length === 0) {
       return;
     }
 
@@ -276,15 +301,17 @@ export default function BottomSheetComments({
     }
 
     pendingScrollRowIdRef.current = null;
-    pendingScrollIndexRef.current = rowIndex;
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex?.({
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      void listRef.current?.scrollToIndex({
         index: rowIndex,
         animated: true,
         viewPosition: 1,
+      }).catch(() => {
+        // The sheet can close while FlashList is measuring the target.
       });
     });
-  }, [rows]);
+  }, [isListReady, post, rows, visible]);
 
   const composerBottomPadding = isComposerFocused ? 8 : insets.bottom + 8;
 
@@ -295,12 +322,11 @@ export default function BottomSheetComments({
     }
 
     setComposerFooterSnapshot({
+      postId: post.id,
       currentUser,
-      input,
       replyingTo,
       bottomPadding: composerBottomPadding,
       inputRef,
-      onChangeText: setInput,
       onFocus: handleInputFocus,
       onBlur: handleInputBlur,
       onCancelReply: cancelReply,
@@ -321,10 +347,9 @@ export default function BottomSheetComments({
     handleInputFocus,
     handleSend,
     handleSendPressIn,
-    input,
     post,
     replyingTo,
-    setInput,
+    setComposerFooterSnapshot,
     visible,
   ]);
 
@@ -363,9 +388,10 @@ export default function BottomSheetComments({
       )}
       handleIndicatorStyle={styles.grabHandle}
       backgroundStyle={styles.sheetBackground}
-      footerComponent={CommentsComposerFooter}
+      footerComponent={renderComposerFooter}
     >
       <CommentList
+        key={post?.id ?? 'closed'}
         listRef={listRef}
         rows={rows}
         isLoading={isLoading}
@@ -374,28 +400,7 @@ export default function BottomSheetComments({
         onReply={handleReply}
         onLike={toggleLike}
         onToggleThread={toggleThread}
-        onScrollToIndexFailed={(info: {
-          index: number;
-          highestMeasuredFrameIndex: number;
-          averageItemLength: number;
-        }) => {
-          const targetIndex = pendingScrollIndexRef.current ?? info.index;
-
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToOffset?.({
-              offset: Math.max(0, info.averageItemLength * targetIndex),
-              animated: false,
-            });
-          });
-
-          setTimeout(() => {
-            listRef.current?.scrollToIndex?.({
-              index: targetIndex,
-              animated: true,
-              viewPosition: 1,
-            });
-          }, 60);
-        }}
+        onLoad={handleListLoad}
       />
     </BottomSheetModal>
   );

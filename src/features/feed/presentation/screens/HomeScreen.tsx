@@ -3,14 +3,15 @@ import React, {
 } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Dimensions, Easing, ImageBackground, Modal, Pressable, BackHandler, ScrollView, FlatList,
+  Animated, useWindowDimensions, Easing, Modal, Pressable, BackHandler, Platform,
   type GestureResponderEvent, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { FlashList, type FlashListProps } from '@shopify/flash-list';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { VideoView, useVideoPlayer } from 'expo-video';
 import Reanimated, {
   Easing as ReanimatedEasing,
   interpolate,
@@ -36,10 +37,11 @@ import {
   useFeedUiStore,
   type MenuAnchor,
 } from '@/features/feed/presentation/store/useFeedUiStore';
-import { createCachedVideoSource } from '@/shared/constants/demoMedia';
+import { getTabBarOccupiedHeight } from '@/shared/utils/tabBarLayout';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
+import { FeedVideoMedia, type FeedVideoHandle } from '@/features/feed/presentation/components/FeedVideoMedia';
 import { formatCount } from '@/shared/utils/formatCount';
 
-const { width } = Dimensions.get('window');
 
 const TAP_IN_DURATION = 70;
 const TAP_OUT_DURATION = 130;
@@ -71,6 +73,10 @@ function areIdsEqual(left: string[], right: string[]) {
 /* --- Stories (rola junto no header) --- */
 const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    scale.setValue(1);
+    return () => scale.stopAnimation();
+  }, [item.id, scale]);
   const storyPreviewUri =
     item.stories[0]?.type === 'video'
       ? item.stories[0].thumbnail ?? item.avatar
@@ -94,12 +100,8 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
         accessibilityLabel={`Story de ${item.name}`}
         onPress={handlePress}
       >
-        <ImageBackground
-          source={{ uri: storyPreviewUri }}
-          style={styles.storyBg}
-          imageStyle={styles.storyBgImage}
-          resizeMode="cover"
-        >
+        <View style={styles.storyBg}>
+          <Image source={{ uri: storyPreviewUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={storyPreviewUri} />
           <View style={styles.storyAvatarWrap}>
             <Image
               source={{ uri: item.avatar }}
@@ -109,7 +111,7 @@ const StoryCard = memo(function StoryCard({ item, onPress }: { item: StoryUser; 
               recyclingKey={item.avatar}
             />
           </View>
-        </ImageBackground>
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -122,30 +124,19 @@ const FeedStoriesHeader = memo(function FeedStoriesHeader({
   stories: StoryUser[];
   onOpenStory: (userIndex: number) => void;
 }) {
-  const storyCards = useMemo(
-    () =>
-      stories.map((story, index) => (
-        <StoryCard
-          key={story.id}
-          item={story}
-          onPress={() => onOpenStory(index)}
-        />
-      )),
-    [onOpenStory, stories]
-  );
-
+  const renderStory = useCallback(({ item, index }: { item: StoryUser; index: number }) => (
+    <StoryCard item={item} onPress={() => onOpenStory(index)} />
+  ), [onOpenStory]);
   return (
     <View style={styles.storiesWrap}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.storyListContent}
-      >
-        {storyCards}
-      </ScrollView>
+      <FlashList horizontal data={stories} renderItem={renderStory} keyExtractor={storyKey} getItemType={storyType} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyListContent} />
     </View>
   );
 });
+const storyKey = (item: StoryUser) => item.id;
+const storyType = () => 'story';
+const postKey = (item: Post) => item.id;
+const postType = (item: Post) => item.type;
 
 type ContextMenuActionItemProps = {
   iconName: React.ComponentProps<typeof Ionicons>['name'];
@@ -245,6 +236,11 @@ const FloatingHearts = memo(
   forwardRef<FloatingHeartsHandle>(function FloatingHearts(_props, ref) {
     const [hearts, setHearts] = useState<FloatingHeart[]>([]);
     const idRef = useRef(0);
+    const heartAnimations = useRef(new Set<Animated.Value>());
+    useEffect(() => () => {
+      heartAnimations.current.forEach((animation) => animation.stopAnimation());
+      heartAnimations.current.clear();
+    }, []);
 
     useImperativeHandle(
       ref,
@@ -252,6 +248,7 @@ const FloatingHearts = memo(
         spawn(x: number, y: number) {
           const id = idRef.current++;
           const anim = new Animated.Value(0);
+          heartAnimations.current.add(anim);
           const rotate = Math.random() * 28 - 14;
           const size = 88 + Math.round(Math.random() * 14);
 
@@ -265,7 +262,9 @@ const FloatingHearts = memo(
             duration: 720,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(() => {
+          }).start(({ finished }) => {
+            heartAnimations.current.delete(anim);
+            if (!finished) return;
             setHearts((prev) => prev.filter((heart) => heart.id !== id));
           });
         },
@@ -306,6 +305,7 @@ type PostCardProps = {
   isFollowingAuthor: boolean;
   showFollowCta: boolean;
   isVisible: boolean;
+  shouldLoad: boolean;
   onOpenComments: (post: Post) => void;
   onOpenShare: (post: Post) => void;
   onToggleFollowAuthor: (authorId: string, nextIsFollowing: boolean) => void;
@@ -319,28 +319,17 @@ const PostCard = memo(function PostCard({
   isFollowingAuthor,
   showFollowCta,
   isVisible,
+  shouldLoad,
   onOpenComments,
   onOpenShare,
   onToggleFollowAuthor,
   onOpenContextMenu,
 }: PostCardProps) {
-  const [liked, setLiked] = useState(false);
-  const [reposted, setReposted] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isPausedByUser, setIsPausedByUser] = useState(false);
-  const [hasEnded, setHasEnded] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState(!item.thumbnail);
-  const [hasVideoError, setHasVideoError] = useState(false);
-  const videoSource = useMemo(
-    () => (item.video ? createCachedVideoSource(item.video) : null),
-    [item.video]
-  );
-  const videoPlayer = useVideoPlayer(videoSource, (player) => {
-    player.loop = false;
-    player.muted = true;
-  });
+  const liked = useFeedUiStore((state) => state.postInteractions[item.id]?.liked ?? false);
+  const reposted = useFeedUiStore((state) => state.postInteractions[item.id]?.reposted ?? false);
+  const saved = useFeedUiStore((state) => state.postInteractions[item.id]?.saved ?? false);
+  const updateInteraction = useFeedUiStore((state) => state.updatePostInteraction);
+  const videoRef = useRef<FeedVideoHandle>(null);
 
   const likeScale = useSharedValue(1);
   const commentScale = useSharedValue(1);
@@ -357,6 +346,20 @@ const PostCard = memo(function PostCard({
   const menuButtonRef = useRef<View | null>(null);
   const heartsRef = useRef<FloatingHeartsHandle>(null);
   const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    likeScale.value = 1;
+    commentScale.value = 1;
+    commentTilt.value = 0;
+    shareProgress.value = 0;
+    repostScale.value = 1;
+    repostTilt.value = 0;
+    saveRotateY.value = 0;
+    moreButtonScale.value = 1;
+    moreButtonOffsetY.value = 0;
+    moreButtonGlow.value = 0;
+    followScale.value = 1;
+  }, [item.id, likeScale, commentScale, commentTilt, shareProgress, repostScale, repostTilt, saveRotateY, moreButtonScale, moreButtonOffsetY, moreButtonGlow, followScale]);
 
   const likeIconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: likeScale.value }],
@@ -442,9 +445,9 @@ const PostCard = memo(function PostCard({
   }, [likeScale]);
 
   const handleLike = useCallback(() => {
-    setLiked(v => !v);
+    updateInteraction(item.id, (current) => ({ liked: !current.liked }));
     animateLikeIcon();
-  }, [animateLikeIcon]);
+  }, [animateLikeIcon, item.id, updateInteraction]);
 
   const handleComment = () => {
     commentScale.value = withSequence(
@@ -492,7 +495,7 @@ const PostCard = memo(function PostCard({
   };
 
   const handleRepost = () => {
-    setReposted(v => !v);
+    updateInteraction(item.id, (current) => ({ reposted: !current.reposted }));
     repostScale.value = withSequence(
       withTiming(0.94, {
         duration: TAP_IN_DURATION,
@@ -521,7 +524,7 @@ const PostCard = memo(function PostCard({
   };
 
   const handleSave = () => {
-    setSaved(v => !v);
+    updateInteraction(item.id, (current) => ({ saved: !current.saved }));
     saveRotateY.value = 0;
     saveRotateY.value = withSequence(
       withTiming(96, {
@@ -538,16 +541,6 @@ const PostCard = memo(function PostCard({
   const postTags = item.hashtags?.join(' ') ?? '';
 
   const isVideoPost = item.type === 'video-horizontal' || item.type === 'video-vertical';
-  const shouldAutoPlay = isVisible && !isPausedByUser && !hasEnded;
-
-  useEffect(() => {
-    setIsVideoReady(!item.thumbnail);
-    setHasVideoError(false);
-    setIsPlaying(false);
-    setIsPausedByUser(false);
-    setHasEnded(false);
-  }, [item.id, item.thumbnail, item.video]);
-
   useEffect(() => {
     followProgress.value = withTiming(isFollowingAuthor ? 1 : 0, {
       duration: 180,
@@ -555,96 +548,11 @@ const PostCard = memo(function PostCard({
     });
   }, [followProgress, isFollowingAuthor]);
 
-  useEffect(() => {
-    if (!isVideoPost) return;
-
-    const statusSubscription = videoPlayer.addListener(
-      'statusChange',
-      ({ status, error }) => {
-        if (error) {
-          setHasVideoError(true);
-          setIsVideoReady(false);
-          setIsPlaying(false);
-          return;
-        }
-
-        if (status === 'readyToPlay') {
-          setHasVideoError(false);
-          setIsVideoReady(true);
-        }
-      }
-    );
-    const sourceLoadSubscription = videoPlayer.addListener('sourceLoad', () => {
-      setHasVideoError(false);
-    });
-    const playingSubscription = videoPlayer.addListener('playingChange', ({ isPlaying: nextIsPlaying }) => {
-      setIsPlaying(nextIsPlaying);
-    });
-    const playToEndSubscription = videoPlayer.addListener('playToEnd', () => {
-      setHasEnded(true);
-      setIsPausedByUser(false);
-      setIsPlaying(false);
-    });
-
-    return () => {
-      statusSubscription.remove();
-      sourceLoadSubscription.remove();
-      playingSubscription.remove();
-      playToEndSubscription.remove();
-    };
-  }, [isVideoPost, videoPlayer]);
-
-  useEffect(() => {
-    if (!isVideoPost) return;
-
-    videoPlayer.muted = isMuted;
-  }, [isMuted, isVideoPost, videoPlayer]);
-
-  useEffect(() => {
-    if (!isVideoPost) return;
-
-    if (hasVideoError) {
-      videoPlayer.pause();
-      return;
-    }
-
-    if (shouldAutoPlay) {
-      videoPlayer.play();
-      return;
-    }
-
-    videoPlayer.pause();
-  }, [hasVideoError, isVideoPost, shouldAutoPlay, videoPlayer]);
-
-  const handleVideoPress = useCallback(async () => {
-    if (!isVideoPost || hasVideoError) return;
-
-    if (hasEnded) {
-      setHasEnded(false);
-      setIsPausedByUser(false);
-      videoPlayer.replay();
-      return;
-    }
-
-    if (isPlaying) {
-      setIsPausedByUser(true);
-      return;
-    }
-
-    setIsPausedByUser(false);
-  }, [hasEnded, hasVideoError, isPlaying, isVideoPost, videoPlayer]);
-
-  const handleReplay = async () => {
-    setHasEnded(false);
-    setIsPausedByUser(false);
-    videoPlayer.replay();
-  };
-
   const handleDoubleTapLike = useCallback((x: number, y: number) => {
-    setLiked(true);
+    updateInteraction(item.id, () => ({ liked: true }));
     animateLikeIcon();
     heartsRef.current?.spawn(x, y);
-  }, [animateLikeIcon]);
+  }, [animateLikeIcon, item.id, updateInteraction]);
 
   const handleMediaTap = useCallback((event: GestureResponderEvent) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -660,18 +568,19 @@ const PostCard = memo(function PostCard({
       singleTapTimeoutRef.current = null;
 
       if (isVideoPost) {
-        void handleVideoPress();
+        videoRef.current?.togglePlayback();
       }
     }, DOUBLE_TAP_DELAY_MS);
-  }, [handleDoubleTapLike, handleVideoPress, isVideoPost]);
+  }, [handleDoubleTapLike, isVideoPost]);
 
   useEffect(() => (
     () => {
       if (singleTapTimeoutRef.current) {
         clearTimeout(singleTapTimeoutRef.current);
+        singleTapTimeoutRef.current = null;
       }
     }
-  ), []);
+  ), [item.id]);
 
   const renderMedia = () => {
     if (item.type === 'image' && item.image) {
@@ -684,7 +593,7 @@ const PostCard = memo(function PostCard({
             cachePolicy="memory-disk"
             recyclingKey={item.image}
           />
-          <FloatingHearts ref={heartsRef} />
+          <FloatingHearts key={item.id} ref={heartsRef} />
         </Pressable>
       );
     }
@@ -697,59 +606,12 @@ const PostCard = memo(function PostCard({
           style={[styles.videoWrap, isVertical ? styles.verticalVideoWrap : styles.horizontalVideoWrap]}
           onPress={handleMediaTap}
         >
-          <VideoView
-            player={videoPlayer}
-            style={styles.video}
-            contentFit="cover"
-            nativeControls={false}
-            surfaceType="textureView"
-            useExoShutter={false}
-            onFirstFrameRender={() => {
-              setIsVideoReady(true);
-              setHasVideoError(false);
-            }}
-          />
-          {!!item.thumbnail && (!isVideoReady || hasVideoError) && (
-            <Image
-              source={{ uri: item.thumbnail }}
-              style={styles.video}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={item.thumbnail}
-            />
+          {shouldLoad ? (
+            <FeedVideoMedia key={item.id} ref={videoRef} id={item.id} uri={item.video} thumbnail={item.thumbnail} playing={isVisible} />
+          ) : !!item.thumbnail && (
+            <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={item.thumbnail} />
           )}
-          <FloatingHearts ref={heartsRef} />
-
-          <TouchableOpacity
-            style={styles.muteButton}
-            onPress={() => setIsMuted((prev) => !prev)}
-            accessibilityRole="button"
-            accessibilityLabel={isMuted ? 'Ativar som' : 'Silenciar video'}
-          >
-            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={18} color="#F8F9FF" />
-          </TouchableOpacity>
-
-          {!isPlaying && isVisible && isPausedByUser && !hasEnded && (
-            <TouchableOpacity
-              style={styles.centerButton}
-              onPress={handleVideoPress}
-              accessibilityRole="button"
-              accessibilityLabel="Continuar video"
-            >
-              <Ionicons name="play" size={30} color="#F8F9FF" />
-            </TouchableOpacity>
-          )}
-
-          {hasEnded && (
-            <TouchableOpacity
-              style={styles.centerButton}
-              onPress={handleReplay}
-              accessibilityRole="button"
-              accessibilityLabel="Reproduzir video novamente"
-            >
-              <Ionicons name="refresh" size={28} color="#F8F9FF" />
-            </TouchableOpacity>
-          )}
+          <FloatingHearts key={item.id} ref={heartsRef} />
         </Pressable>
       );
     }
@@ -957,11 +819,15 @@ const PostCard = memo(function PostCard({
 
 export default function Home() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const width = windowWidth - insets.left - insets.right;
+  const playbackActive = useScreenPlaybackActive();
   const isFocused = useIsFocused();
   const { posts } = useFeed(isFocused);
   const stories = useStories(isFocused);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [visiblePostIds, setVisiblePostIds] = useState<string[]>([]);
+  const lastVisiblePostIds = useRef<string[]>([]);
   const menuData = useFeedUiStore((state) => state.menuData);
   const commentsPost = useFeedUiStore((state) => state.commentsPost);
   const sharePost = useFeedUiStore((state) => state.sharePost);
@@ -1032,14 +898,14 @@ export default function Home() {
           });
           runOnJS(setActivePage)(target as 0 | 1);
         }),
-    [dragStart, pageProgress]
+    [dragStart, pageProgress, width]
   );
 
   const kachanTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
   const kzoneTitlePan = useMemo(makeTitlePan, [makeTitlePan]);
 
   useEffect(() => {
-    if (activePage !== 1) {
+    if (!isFocused || activePage !== 1) {
       return;
     }
 
@@ -1052,7 +918,7 @@ export default function Home() {
     );
 
     return () => subscription.remove();
-  }, [activePage, goToKachan]);
+  }, [activePage, goToKachan, isFocused]);
 
   const finishCloseContextMenu = useCallback(() => {
     storeCloseContextMenu();
@@ -1069,8 +935,9 @@ export default function Home() {
     });
   }, [finishCloseContextMenu, menuProgress]);
 
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
-    const ids = viewableItems.map((entry) => entry.item.id);
+  const onViewableItemsChanged = useRef<NonNullable<FlashListProps<Post>['onViewableItemsChanged']>>(({ viewableItems }) => {
+    const ids = viewableItems.filter((entry) => entry.isViewable).map((entry) => entry.item.id);
+    if (ids.length > 0) lastVisiblePostIds.current = ids;
 
     setVisiblePostIds((previousIds) => (
       areIdsEqual(previousIds, ids) ? previousIds : ids
@@ -1149,7 +1016,6 @@ export default function Home() {
     const menuHeight = 276;
     const edgeOffset = 10;
     const anchorGap = 8;
-    const windowHeight = Dimensions.get('window').height;
 
     const unclampedLeft = menuData.anchor.x + menuData.anchor.width - menuWidth;
     const left = Math.min(
@@ -1164,7 +1030,7 @@ export default function Home() {
       : belowTop;
 
     return { top, left };
-  }, [insets.bottom, insets.top, menuData]);
+  }, [insets.bottom, insets.top, menuData, width, windowHeight]);
 
   const isMenuAuthorFollowing = menuData
     ? followOverridesByAuthor[menuData.post.authorId] ?? menuData.post.isFollowingAuthor
@@ -1201,6 +1067,15 @@ export default function Home() {
     });
   }, [isFocused, navigation, stories]);
 
+  const preloadIds = useMemo(() => {
+    const ids = new Set(visiblePostIds.length > 0 ? visiblePostIds : lastVisiblePostIds.current);
+    const lastVisibleIndex = posts.reduce((last, post, index) => ids.has(post.id) ? index : last, -1);
+    const next = posts[lastVisibleIndex + 1];
+    if (next) ids.add(next.id);
+    return ids;
+  }, [posts, visiblePostIds]);
+  const canPlayFeed = playbackActive && activePage === 0;
+
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
       const commentCount = commentCountOverrides[item.id] ?? item.comments;
@@ -1214,7 +1089,8 @@ export default function Home() {
           shareCount={shareCount}
           isFollowingAuthor={isFollowingAuthor}
           showFollowCta={item.isSuggested}
-          isVisible={visiblePostIds.includes(item.id)}
+          isVisible={canPlayFeed && visiblePostIds.includes(item.id)}
+          shouldLoad={preloadIds.has(item.id)}
           onOpenComments={openComments}
           onOpenShare={openShare}
           onToggleFollowAuthor={handleToggleFollowAuthor}
@@ -1223,6 +1099,8 @@ export default function Home() {
       );
     },
     [
+      canPlayFeed,
+      preloadIds,
       commentCountOverrides,
       followOverridesByAuthor,
       handleToggleFollowAuthor,
@@ -1240,8 +1118,10 @@ export default function Home() {
       followOverridesByAuthor,
       shareCountOverrides,
       visiblePostIds,
+      canPlayFeed,
+      preloadIds,
     }),
-    [commentCountOverrides, followOverridesByAuthor, shareCountOverrides, visiblePostIds]
+    [commentCountOverrides, followOverridesByAuthor, shareCountOverrides, visiblePostIds, canPlayFeed, preloadIds]
   );
 
   const commentsSheetPost = useMemo<CommentPostPreview | null>(() => {
@@ -1322,9 +1202,9 @@ export default function Home() {
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} start={[0,0]} end={[1,1]} style={StyleSheet.absoluteFill} />
 
       {/* Pager horizontal: arraste o nome para alternar KaChan! <-> Kzone! */}
-      <Reanimated.View style={[styles.pagerTrack, trackAnimatedStyle]}>
+      <Reanimated.View style={[styles.pagerTrack, { width: width * 2 }, trackAnimatedStyle]}>
         {/* Pagina 0 — KaChan! */}
-        <View style={styles.page}>
+        <View style={[styles.page, { width }]}>
           {/* Topo fixo: nome (puxador) + sino */}
           <View style={[styles.topBar, { paddingTop: insets.top }]}>
             <GestureDetector gesture={kachanTitlePan}>
@@ -1344,15 +1224,15 @@ export default function Home() {
           </View>
 
           {/* Feed: Stories no header (sobem juntos) */}
-          <FlatList
+          <FlashList
             data={posts}
-            keyExtractor={(p) => p.id}
+            keyExtractor={postKey}
+            getItemType={postType}
             renderItem={renderPost}
             ListHeaderComponent={feedHeader}
             extraData={feedExtraData}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.feedContent}
-            removeClippedSubviews={false}
+            contentContainerStyle={[styles.feedContent, { paddingBottom: getTabBarOccupiedHeight(insets.bottom, Platform.OS) + 18 }]}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
           />
@@ -1362,6 +1242,9 @@ export default function Home() {
         <KzonePlaceholder
           titlePan={kzoneTitlePan}
           topInset={insets.top}
+          onBack={goToKachan}
+          pageWidth={width}
+          bottomInset={insets.bottom}
         />
       </Reanimated.View>
 
@@ -1453,8 +1336,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0E0E12' },
 
   // pager KaChan! <-> Kzone!
-  pagerTrack: { flex: 1, flexDirection: 'row', width: width * 2 },
-  page: { width },
+  pagerTrack: { flex: 1, flexDirection: 'row' },
+  page: { flex: 1 },
 
   // topo fixo
   topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
@@ -1462,7 +1345,7 @@ const styles = StyleSheet.create({
   logoHandle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingRight: 8 },
 
   // stories
-  storiesWrap: { paddingVertical: 10, marginBottom: 8 },
+  storiesWrap: { height: 109, paddingVertical: 10, marginBottom: 8 },
   storyListContent: { paddingHorizontal: 12 },
   storyItem: { width: 64, height: 89, marginHorizontal: 6, borderRadius: 15, overflow: 'hidden' },
   storyBg: { flex: 1, borderRadius: 15 },
@@ -1477,7 +1360,7 @@ const styles = StyleSheet.create({
 
   // cards do feed
   card: {
-    width,
+    width: '100%',
     paddingBottom: 12,
     marginBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1526,12 +1409,12 @@ const styles = StyleSheet.create({
   cardSub: { color: '#A8ACBF', fontSize: 11, marginTop: 2 },
 
   // midia com aspectRatio (evita reflow)
-  mediaWrap: { width, backgroundColor: '#15182f', overflow: 'hidden' },
+  mediaWrap: { width: '100%', backgroundColor: '#15182f', overflow: 'hidden' },
   media: { width: '100%', aspectRatio: 0.9, resizeMode: 'cover' },
   heartsOverlay: { ...StyleSheet.absoluteFillObject },
 
   videoWrap: {
-    width,
+    width: '100%',
     backgroundColor: '#15182f',
     justifyContent: 'center',
     alignItems: 'center',

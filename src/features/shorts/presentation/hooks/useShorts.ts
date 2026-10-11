@@ -12,7 +12,6 @@ export function useShorts(subscribed = true) {
   const { data = [] } = useQuery({
     queryKey: ['shorts', mode],
     queryFn: () => Promise.resolve(getShortsFeed(repository, mode)),
-    placeholderData: (previousData) => previousData,
     staleTime: Infinity,
     subscribed,
   });

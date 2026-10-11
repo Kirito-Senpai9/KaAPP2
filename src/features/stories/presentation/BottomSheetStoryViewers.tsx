@@ -2,11 +2,12 @@ import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
   BottomSheetBackdrop,
-  BottomSheetFlatList,
   BottomSheetModal,
+  useBottomSheetScrollableCreator,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StoryViewerEntry } from '@/features/stories/domain/entities/story';
@@ -16,6 +17,9 @@ type BottomSheetStoryViewersProps = {
   viewers: StoryViewerEntry[];
   onClose: () => void;
 };
+const keyExtractor = (item: StoryViewerEntry) => item.id;
+const getItemType = () => 'story-viewer';
+const maintainVisibleContentPosition = { disabled: true };
 
 function BottomSheetStoryViewersComponent({
   visible,
@@ -24,6 +28,7 @@ function BottomSheetStoryViewersComponent({
 }: BottomSheetStoryViewersProps) {
   const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
+  const renderScrollComponent = useBottomSheetScrollableCreator();
   const snapPoints = useMemo(() => ['55%', '88%'], []);
 
   useEffect(() => {
@@ -34,8 +39,6 @@ function BottomSheetStoryViewersComponent({
 
     modalRef.current?.present();
   }, [visible]);
-
-  const sortedViewers = useMemo(() => [...viewers], [viewers]);
 
   const renderViewer = useCallback(
     ({ item }: { item: StoryViewerEntry }) => (
@@ -77,17 +80,20 @@ function BottomSheetStoryViewersComponent({
         />
       )}
     >
-      <BottomSheetFlatList
-        data={sortedViewers}
-        keyExtractor={(item: StoryViewerEntry) => item.id}
+      <FlashList
+        data={viewers}
+        keyExtractor={keyExtractor}
+        getItemType={getItemType}
+        renderScrollComponent={renderScrollComponent}
+        maintainVisibleContentPosition={maintainVisibleContentPosition}
         renderItem={renderViewer}
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Visualizacoes</Text>
             <Text style={styles.headerSubtitle}>
-              {sortedViewers.length === 1
+              {viewers.length === 1
                 ? '1 pessoa viu este story'
-                : `${sortedViewers.length} pessoas viram este story`}
+                : `${viewers.length} pessoas viram este story`}
             </Text>
           </View>
         }

@@ -13,7 +13,34 @@ type MenuData = {
   anchor: MenuAnchor;
 } | null;
 
+export type FeedPostInteraction = {
+  liked: boolean;
+  reposted: boolean;
+  saved: boolean;
+  muted: boolean;
+  paused: boolean;
+};
+
+export const DEFAULT_POST_INTERACTION: Readonly<FeedPostInteraction> = {
+  liked: false, reposted: false, saved: false, muted: true, paused: false,
+};
+
+export type KzoneInteraction = {
+  liked: boolean;
+  reposted: boolean;
+  replyCount: number;
+  shareCount: number;
+};
+
+export const DEFAULT_KZONE_INTERACTION: Readonly<KzoneInteraction> = {
+  liked: false, reposted: false, replyCount: 0, shareCount: 0,
+};
+
 type FeedUiStore = {
+  postInteractions: Record<string, FeedPostInteraction>;
+  kzoneInteractions: Record<string, KzoneInteraction>;
+  updatePostInteraction: (id: string, update: (current: FeedPostInteraction) => Partial<FeedPostInteraction>) => void;
+  updateKzoneInteraction: (id: string, update: (current: KzoneInteraction) => Partial<KzoneInteraction>) => void;
   menuData: MenuData;
   commentsPost: Post | null;
   sharePost: Post | null;
@@ -32,6 +59,16 @@ type FeedUiStore = {
 };
 
 export const useFeedUiStore = create<FeedUiStore>((set) => ({
+  postInteractions: {},
+  kzoneInteractions: {},
+  updatePostInteraction: (id, update) => set((state) => {
+    const current = state.postInteractions[id] ?? DEFAULT_POST_INTERACTION;
+    return { postInteractions: { ...state.postInteractions, [id]: { ...current, ...update(current) } } };
+  }),
+  updateKzoneInteraction: (id, update) => set((state) => {
+    const current = state.kzoneInteractions[id] ?? DEFAULT_KZONE_INTERACTION;
+    return { kzoneInteractions: { ...state.kzoneInteractions, [id]: { ...current, ...update(current) } } };
+  }),
   menuData: null,
   commentsPost: null,
   sharePost: null,

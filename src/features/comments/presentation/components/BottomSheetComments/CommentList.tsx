@@ -1,9 +1,10 @@
-import React, { memo, type ReactElement } from 'react';
+import React, { memo, useCallback, useMemo, type ReactElement } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  BottomSheetFlatList,
   BottomSheetView,
+  useBottomSheetScrollableCreator,
 } from '@gorhom/bottom-sheet';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import type {
   CommentListRow,
   CommentNode,
@@ -12,20 +13,20 @@ import CommentItem from '@/features/comments/presentation/components/BottomSheet
 import ReplyItem from '@/features/comments/presentation/components/BottomSheetComments/ReplyItem';
 
 type CommentListProps = {
-  listRef: React.RefObject<any>;
+  listRef: React.RefObject<FlashListRef<CommentListRow> | null>;
   rows: CommentListRow[];
   isLoading: boolean;
   onReply: (comment: CommentNode) => void;
   onLike: (commentId: string) => void;
   onToggleThread: (commentId: string) => void;
-  onScrollToIndexFailed: (info: {
-    index: number;
-    highestMeasuredFrameIndex: number;
-    averageItemLength: number;
-  }) => void;
+  onLoad: () => void;
   header: ReactElement | null;
   bottomSpacer: number;
 };
+
+const keyExtractor = (item: CommentListRow) => item.id;
+const getItemType = (item: CommentListRow) => item.type;
+const maintainVisibleContentPosition = { disabled: true };
 
 function CommentListComponent({
   listRef,
@@ -34,10 +35,38 @@ function CommentListComponent({
   onReply,
   onLike,
   onToggleThread,
-  onScrollToIndexFailed,
+  onLoad,
   header,
   bottomSpacer,
 }: CommentListProps) {
+  const renderScrollComponent = useBottomSheetScrollableCreator({ enableFooterMarginAdjustment: true });
+  const contentContainerStyle = useMemo(
+    () => [styles.listContent, { paddingBottom: bottomSpacer }],
+    [bottomSpacer]
+  );
+  const renderItem = useCallback(({ item, index }: { item: CommentListRow; index: number }) => {
+    if (item.type === 'thread-toggle') {
+      return (
+        <View style={styles.threadToggleWrap}>
+          <View style={styles.threadToggleRow}>
+            <View style={styles.threadToggleLine} />
+            <Pressable hitSlop={8} onPress={() => onToggleThread(item.parentId)}>
+              <Text style={styles.threadToggleText}>
+                {item.expanded ? 'Ocultar respostas' : `Ver respostas (${item.repliesCount})`}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+    if (item.type === 'reply') {
+      return <ReplyItem comment={item.comment} onReply={onReply} onLike={onLike} />;
+    }
+    return (
+      <CommentItem comment={item.comment} showSeparator={index > 0} onReply={onReply} onLike={onLike} />
+    );
+  }, [onLike, onReply, onToggleThread]);
+
   if (isLoading) {
     return (
       <BottomSheetView style={styles.skeletonList} enableFooterMarginAdjustment>
@@ -64,58 +93,20 @@ function CommentListComponent({
   }
 
   return (
-    <BottomSheetFlatList
+    <FlashList
       ref={listRef}
       data={rows}
-      keyExtractor={(item: CommentListRow) => item.id}
-      renderItem={({ item, index }: { item: CommentListRow; index: number }) => {
-        if (item.type === 'thread-toggle') {
-          return (
-            <View style={styles.threadToggleWrap}>
-              <View style={styles.threadToggleRow}>
-                <View style={styles.threadToggleLine} />
-                <Pressable hitSlop={8} onPress={() => onToggleThread(item.parentId)}>
-                  <Text style={styles.threadToggleText}>
-                    {item.expanded
-                      ? 'Ocultar respostas'
-                      : `Ver respostas (${item.repliesCount})`}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        }
-
-        if (item.type === 'reply') {
-          return (
-            <ReplyItem
-              row={item}
-              onReply={onReply}
-              onLike={onLike}
-            />
-          );
-        }
-
-        return (
-          <CommentItem
-            row={item}
-            showSeparator={index > 0}
-            onReply={onReply}
-            onLike={onLike}
-          />
-        );
-      }}
+      keyExtractor={keyExtractor}
+      getItemType={getItemType}
+      renderItem={renderItem}
+      renderScrollComponent={renderScrollComponent}
+      maintainVisibleContentPosition={maintainVisibleContentPosition}
       style={styles.list}
-      contentContainerStyle={[
-        styles.listContent,
-        { paddingBottom: bottomSpacer },
-      ]}
+      contentContainerStyle={contentContainerStyle}
       ListHeaderComponent={header}
-      enableFooterMarginAdjustment
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-      removeClippedSubviews={Platform.OS === 'android'}
-      onScrollToIndexFailed={onScrollToIndexFailed}
+      onLoad={onLoad}
     />
   );
 }

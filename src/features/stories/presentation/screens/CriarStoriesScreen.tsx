@@ -1,19 +1,74 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Dimensions, ScrollView
+  Alert, Platform, View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, useWindowDimensions, ScrollView
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { RootStackScreenProps } from '@/app/navigation/types';
 import * as ImagePicker from 'expo-image-picker';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
 
-const { width } = Dimensions.get('window');
+const AUDIENCES = [
+  { value: 'publico', label: 'Público' },
+  { value: 'amigos', label: 'Amigos' },
+  { value: 'privado', label: 'Privado' },
+] as const;
+
+function StoryVideoPreview({ uri, onError }: { uri: string; onError: (failed: boolean) => void }) {
+  const active = useScreenPlaybackActive();
+  const [failed, setFailed] = useState(false);
+  const source = useMemo(() => ({ uri, useCaching: /^https?:\/\//i.test(uri) }), [uri]);
+  const player = useVideoPlayer(source, (instance) => {
+    instance.loop = true;
+    instance.muted = true;
+    instance.staysActiveInBackground = false;
+  });
+
+  useEffect(() => {
+    const updateError = (isError: boolean) => {
+      setFailed(isError);
+      onError(isError);
+    };
+    updateError(player.status === 'error');
+    const subscription = player.addListener('statusChange', ({ status }) => {
+      if (status === 'error') updateError(true);
+      else if (status === 'readyToPlay') updateError(false);
+    });
+    return () => subscription.remove();
+  }, [onError, player]);
+
+  useEffect(() => {
+    if (active && !failed) player.play();
+    else player.pause();
+  }, [active, failed, player]);
+
+  if (failed) return (
+    <View style={styles.videoFallback}>
+      <Ionicons name="alert-circle-outline" size={22} color="#cfd3ff" />
+      <Text style={styles.phTxt}>Não foi possível abrir o vídeo</Text>
+    </View>
+  );
+  return <VideoView player={player} style={styles.previewImg} contentFit="cover" nativeControls={false} surfaceType="textureView" useExoShutter={false} />;
+}
 
 export default function CriarStories({
   navigation,
   route,
 }: RootStackScreenProps<'CriarStories'>) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const previewSize = { height: Math.max(1, width - insets.left - insets.right) * 0.56 };
+  const pickerBusy = useRef(false);
+  const mounted = useRef(true);
+  const [isPicking, setIsPicking] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const [media, setMedia] = useState<{ uri: string; type: 'image'|'video' } | null>(() => {
     if (!route.params?.uri || !route.params.type) {
       return null;
@@ -27,10 +82,11 @@ export default function CriarStories({
   const [caption, setCaption] = useState(route.params?.caption ?? '');
   const [audience, setAudience] = useState<'publico'|'amigos'|'privado'>('publico');
 
-  const canPublish = !!media;
+  const canPublish = !!media && !isPicking && !previewError;
   const publishScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    setPreviewError(false);
     if (route.params?.uri && route.params.type) {
       setMedia({
         uri: route.params.uri,
@@ -44,19 +100,27 @@ export default function CriarStories({
   }, [route.params?.caption, route.params?.type, route.params?.uri]);
 
   const pickMedia = async () => {
-    // imagens ou vídeos curtos; validação de duração fica para o backend
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 0.9,
-      videoMaxDuration: 30,
-      allowsMultipleSelection: false,
-    });
-    if (!res.canceled && res.assets?.[0]) {
-      const a = res.assets[0];
-      setMedia({ uri: a.uri, type: a.type?.startsWith('video') ? 'video' : 'image' });
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
+    setIsPicking(true);
+    try {
+      if (Platform.OS === 'ios') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) throw new Error('Permita acesso à galeria para selecionar vídeos.');
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'], quality: 0.9, allowsMultipleSelection: false,
+      });
+      if (mounted.current && !res.canceled && res.assets?.[0]?.uri) {
+        const asset = res.assets[0];
+        setPreviewError(false);
+        setMedia({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'image' });
+      }
+    } catch (error) {
+      if (mounted.current) Alert.alert('Mídia indisponível', error instanceof Error ? error.message : 'Tente selecionar outro arquivo.');
+    } finally {
+      pickerBusy.current = false;
+      if (mounted.current) setIsPicking(false);
     }
   };
 
@@ -70,44 +134,30 @@ export default function CriarStories({
     // payload: { type:'story', media, caption, audience }
   };
 
-  const AudienceButton = ({ value, label }: { value: typeof audience; label: string }) => {
-    const active = audience === value;
-    return (
-      <TouchableOpacity
-        onPress={() => setAudience(value)}
-        style={[styles.chip, active && styles.chipActive]}
-        activeOpacity={0.85}
-      >
-        <Text style={[styles.chipTxt, active && styles.chipTxtActive]}>{label}</Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const preview = useMemo(() => {
-    if (!media) return (
-      <TouchableOpacity style={styles.mediaPlaceholder} onPress={pickMedia} activeOpacity={0.9}>
+  const preview = !media ? (
+      <TouchableOpacity style={[styles.mediaPlaceholder, previewSize]} onPress={pickMedia} disabled={isPicking} activeOpacity={0.9}>
         <Ionicons name="image-outline" size={28} color="#cfd3ff" />
         <Text style={styles.phTxt}>Selecionar imagem ou vídeo</Text>
       </TouchableOpacity>
-    );
-    return (
-      <TouchableOpacity style={styles.mediaPreview} onPress={pickMedia} activeOpacity={0.9}>
-        <Image
+    ) : (
+      <TouchableOpacity style={[styles.mediaPreview, previewSize]} onPress={pickMedia} disabled={isPicking} activeOpacity={0.9}>
+        {media.type === 'video' ? <StoryVideoPreview key={media.uri} uri={media.uri} onError={setPreviewError} /> : <Image
           source={{ uri: media.uri }}
           style={styles.previewImg}
           contentFit="cover"
           cachePolicy="memory-disk"
           recyclingKey={media.uri}
-        />
+          onError={() => setPreviewError(true)}
+          onLoad={() => setPreviewError(false)}
+        />}
         <View style={styles.badge}>
           <Ionicons name={media.type === 'video' ? 'videocam' : 'image'} size={14} color="#0E0E12" />
         </View>
       </TouchableOpacity>
     );
-  }, [media]);
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <LinearGradient colors={['#0E0E12','#11142a','#0E0E12']} style={StyleSheet.absoluteFill} />
 
       {/* header simples */}
@@ -119,7 +169,7 @@ export default function CriarStories({
         <View style={styles.hBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + insets.bottom }}>
         {/* card */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Mídia</Text>
@@ -138,9 +188,11 @@ export default function CriarStories({
 
           <Text style={[styles.cardTitle, { marginTop: 18 }]}>Audiência</Text>
           <View style={styles.row}>
-            <AudienceButton value="publico" label="Público" />
-            <AudienceButton value="amigos"  label="Amigos" />
-            <AudienceButton value="privado" label="Privado" />
+            {AUDIENCES.map(({ value, label }) => (
+              <TouchableOpacity key={value} onPress={() => setAudience(value)} style={[styles.chip, audience === value && styles.chipActive]} activeOpacity={0.85}>
+                <Text style={[styles.chipTxt, audience === value && styles.chipTxtActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
@@ -163,7 +215,7 @@ export default function CriarStories({
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -174,8 +226,9 @@ const styles = StyleSheet.create({
   hTitle: { color: '#fff', fontWeight: '800', fontSize: 16 },
   card: { backgroundColor: 'rgba(21,24,47,0.65)', borderRadius: 18, padding: 14, marginTop: 12 },
   cardTitle: { color: '#cfd3ff', fontWeight: '700', marginBottom: 8 },
-  mediaPlaceholder: { height: width * 0.56, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  mediaPreview: { height: width * 0.56, borderRadius: 14, overflow: 'hidden' },
+  mediaPlaceholder: { borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  mediaPreview: { borderRadius: 14, overflow: 'hidden' },
+  videoFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#12162B', gap: 8 },
   previewImg: { width: '100%', height: '100%' },
   badge: { position: 'absolute', right: 8, top: 8, backgroundColor: '#DDE1FF', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 10 },
   phTxt: { color: '#cfd3ff' },

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   appendReply,
-  countNestedComments,
+  buildCommentThreadIndex,
+  expandCommentAncestors,
   flattenComments,
+  insertCommentNewest,
   toggleCommentLike,
 } from '@/features/comments/application/use-cases/commentThread';
 import type {
@@ -18,12 +20,10 @@ type UseCommentsResult = {
   currentUser: CommentAuthor;
   comments: CommentNode[];
   rows: CommentListRow[];
-  input: string;
-  setInput: (value: string) => void;
   replyingTo: CommentReplyTarget | null;
   isLoading: boolean;
   totalCount: number;
-  sendComment: () => string | null;
+  sendComment: (content: string) => string | null;
   replyToComment: (comment: CommentNode) => void;
   cancelReply: () => void;
   toggleLike: (commentId: string) => void;
@@ -38,6 +38,7 @@ export const CURRENT_COMMENT_USER: CommentAuthor = {
 };
 
 const EMPTY_COMMENTS: CommentNode[] = [];
+let commentSequence = 0;
 
 export function useComments(
   postId: string | null,
@@ -45,7 +46,6 @@ export function useComments(
 ): UseCommentsResult {
   const queryClient = useQueryClient();
   const sessionPostIdRef = useRef<string | null>(null);
-  const [input, setInput] = useState('');
   const [replyingTo, setReplyingTo] = useState<CommentReplyTarget | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const [initialCountSnapshot, setInitialCountSnapshot] = useState(initialCount);
@@ -54,7 +54,6 @@ export function useComments(
   const commentsQueryKey = useMemo(() => ['comments', postId] as const, [postId]);
 
   const resetTransientState = useCallback(() => {
-    setInput('');
     setReplyingTo(null);
     setExpandedThreads({});
   }, []);
@@ -77,6 +76,7 @@ export function useComments(
   });
   const comments = query.data ?? EMPTY_COMMENTS;
   const isLoading = query.isLoading;
+  const threadIndex = useMemo(() => buildCommentThreadIndex(comments), [comments]);
 
   useEffect(() => {
     if (!postId) {
@@ -102,15 +102,15 @@ export function useComments(
       return;
     }
 
-    setSessionBaselineVisibleCount(countNestedComments(comments));
-  }, [comments, isLoading, postId, sessionBaselineVisibleCount]);
+    setSessionBaselineVisibleCount(threadIndex.totalCount);
+  }, [threadIndex.totalCount, isLoading, postId, sessionBaselineVisibleCount]);
 
   const rows = useMemo(
-    () => flattenComments(comments, expandedThreads),
-    [comments, expandedThreads]
+    () => flattenComments(comments, expandedThreads, threadIndex),
+    [comments, expandedThreads, threadIndex]
   );
 
-  const visibleCount = useMemo(() => countNestedComments(comments), [comments]);
+  const visibleCount = threadIndex.totalCount;
   const baselineVisibleCount = sessionBaselineVisibleCount ?? visibleCount;
   const baseCountOffset = useMemo(
     () => Math.max(0, initialCountSnapshot - baselineVisibleCount),
@@ -165,15 +165,17 @@ export function useComments(
     }));
   }, []);
 
-  const sendComment = useCallback(() => {
-    const content = input.trim();
+  const sendComment = useCallback((text: string) => {
+    const content = text.trim();
 
-    if (!content) {
+    if (!content || !postId) {
       return null;
     }
 
+    if (replyingTo && !threadIndex.parentById.has(replyingTo.id)) return null;
+
     const nextComment: CommentNode = {
-      id: `comment-${Date.now()}`,
+      id: `comment-${Date.now()}-${++commentSequence}`,
       author: CURRENT_COMMENT_USER,
       content,
       createdAt: Date.now(),
@@ -187,25 +189,21 @@ export function useComments(
       updateComments((currentComments) =>
         appendReply(currentComments, replyingTo.id, nextComment)
       );
-      setExpandedThreads((currentThreads) => ({
-        ...currentThreads,
-        [replyingTo.id]: true,
-      }));
+      setExpandedThreads((currentThreads) =>
+        expandCommentAncestors(currentThreads, replyingTo.id, threadIndex)
+      );
     } else {
-      updateComments((currentComments) => [nextComment, ...currentComments]);
+      updateComments((currentComments) => insertCommentNewest(currentComments, nextComment));
     }
 
-    setInput('');
     setReplyingTo(null);
     return nextComment.id;
-  }, [input, replyingTo, updateComments]);
+  }, [postId, replyingTo, threadIndex, updateComments]);
 
   return {
     currentUser: CURRENT_COMMENT_USER,
     comments,
     rows,
-    input,
-    setInput,
     replyingTo,
     isLoading,
     totalCount,

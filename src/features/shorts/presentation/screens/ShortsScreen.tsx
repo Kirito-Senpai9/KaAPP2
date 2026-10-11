@@ -1,16 +1,21 @@
 import React, {
-  forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState,
+  forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from 'react';
 import {
-  View, Text, StyleSheet, Dimensions, Pressable,
-  TouchableOpacity, Animated, Easing,
-  type GestureResponderEvent,
+  View, Text, StyleSheet, useWindowDimensions, Pressable,
+  TouchableOpacity, Animated, Easing, Platform,
+  type GestureResponderEvent, type LayoutChangeEvent,
 } from 'react-native';
-import { FlashList, type FlashListProps, type ViewToken } from '@shopify/flash-list';
+import { FlashList, type FlashListProps, type FlashListRef, type ViewToken } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import Reanimated, { useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { useShortsUiStore } from '@/features/shorts/presentation/store/useShortsUiStore';
+import { getTabBarOccupiedHeight } from '@/shared/utils/tabBarLayout';
+import { useScreenPlaybackActive } from '@/shared/hooks/useScreenPlaybackActive';
+import { createCachedVideoSource } from '@/shared/constants/demoMedia';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,10 +24,7 @@ import type { Short } from '@/features/shorts/domain/entities/short';
 import { useShorts } from '@/features/shorts/presentation/hooks/useShorts';
 import { formatCount } from '@/shared/utils/formatCount';
 
-const { width, height } = Dimensions.get('window');
 
-/** Altura estimada da sua bottom bar custom (KachanTabs). */
-const TAB_BAR_HEIGHT = 86;
 const DOUBLE_TAP_DELAY_MS = 280;
 
 type FloatingHeart = {
@@ -40,6 +42,11 @@ const FloatingHearts = memo(
   forwardRef<FloatingHeartsHandle>(function FloatingHearts(_props, ref) {
     const [hearts, setHearts] = useState<FloatingHeart[]>([]);
     const idRef = useRef(0);
+    const heartAnimations = useRef(new Set<Animated.Value>());
+    useEffect(() => () => {
+      heartAnimations.current.forEach((animation) => animation.stopAnimation());
+      heartAnimations.current.clear();
+    }, []);
 
     useImperativeHandle(
       ref,
@@ -47,6 +54,7 @@ const FloatingHearts = memo(
         spawn(x: number, y: number) {
           const id = idRef.current++;
           const anim = new Animated.Value(0);
+          heartAnimations.current.add(anim);
           const rotate = Math.random() * 28 - 14;
           const size = 88 + Math.round(Math.random() * 14);
           setHearts((prev) => {
@@ -58,7 +66,9 @@ const FloatingHearts = memo(
             duration: 720,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(() => {
+          }).start(({ finished }) => {
+            heartAnimations.current.delete(anim);
+            if (!finished) return;
             setHearts((prev) => prev.filter((h) => h.id !== id));
           });
         },
@@ -131,25 +141,44 @@ function Tabs({
 /* =========================================
    Cartão do Short (cada página)
 ========================================= */
-const ShortCard = memo(function ShortCard({
-  item, playing, onDoubleLike,
-}: {
-  item: Short;
-  playing: boolean;            // controla qual página está visível
-  onDoubleLike?: () => void;
+type ShortVideoProps = { uri: string; playing: boolean; progress: SharedValue<number> };
+function ShortVideo(props: ShortVideoProps) {
+  const [attempt, setAttempt] = useState(0);
+  return <LoadedShortVideo key={props.uri + ':' + attempt} {...props} onRetry={() => setAttempt((value) => value + 1)} />;
+}
+function LoadedShortVideo({ uri, playing, progress, onRetry }: ShortVideoProps & { onRetry: () => void }) {
+  const source = useMemo(() => createCachedVideoSource(uri), [uri]);
+  const player = useVideoPlayer(source, (instance) => { instance.loop = true; instance.timeUpdateEventInterval = 0.1; });
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    progress.value = 0;
+    setFailed(player.status === 'error');
+    const status = player.addListener('statusChange', ({ status: next }) => setFailed(next === 'error'));
+    const time = player.addListener('timeUpdate', ({ currentTime }) => {
+      progress.value = player.duration > 0 ? Math.min(1, Math.max(0, currentTime / player.duration)) : 0;
+    });
+    return () => { status.remove(); time.remove(); };
+  }, [player, progress]);
+  useEffect(() => {
+    if (playing && !failed) player.play(); else player.pause();
+  }, [failed, player, playing]);
+  return <>
+    <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} surfaceType="textureView" useExoShutter={false} />
+    {failed && <View style={styles.mediaError}><Text style={styles.errorText}>Não foi possível carregar o vídeo.</Text><TouchableOpacity onPress={onRetry} accessibilityRole="button" accessibilityLabel="Tentar carregar vídeo novamente"><Text style={styles.retryText}>Tentar novamente</Text></TouchableOpacity></View>}
+  </>;
+}
+
+const ShortCard = memo(function ShortCard({ item, playing, shouldLoad, width, height, bottomOffset }: {
+  item: Short; playing: boolean; shouldLoad: boolean; width: number; height: number; bottomOffset: number;
 }) {
-  const player = useVideoPlayer(item.videoUrl, (videoPlayer) => {
-    videoPlayer.loop = true;
-    videoPlayer.timeUpdateEventInterval = 0.1;
-  });
-
-  // estados
-  const [liked, setLiked] = useState(false);
-  const [follow, setFollow] = useState(!!item.user.following);
-  const [userPaused, setUserPaused] = useState(false); // pausa local por tap
-  const [progress, setProgress] = useState(0);         // 0..1 barra de progresso
-
-  // animações de ícones (somente ícones – contadores ficam fora!)
+  const liked = useShortsUiStore((state) => state.interactions[item.id]?.liked ?? false);
+  const userPaused = useShortsUiStore((state) => state.interactions[item.id]?.paused ?? false);
+  const follow = useShortsUiStore((state) => state.followingByAuthor[item.user.id] ?? !!item.user.following);
+  const update = useShortsUiStore((state) => state.updateInteraction);
+  const toggleFollowing = useShortsUiStore((state) => state.toggleFollowing);
+  const progress = useSharedValue(0);
+  const progressStyle = useAnimatedStyle(() => ({ width: Math.max(0, Math.min(1, progress.value)) * width }));
+  const cardRef = useRef<View>(null);
   const likeScale = useRef(new Animated.Value(1)).current;
   const commentScale = useRef(new Animated.Value(1)).current;
   const shareX = useRef(new Animated.Value(0)).current;
@@ -161,40 +190,26 @@ const ShortCard = memo(function ShortCard({
   // marquee do áudio
   const marquee = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    likeScale.stopAnimation();
+    commentScale.stopAnimation();
+    shareX.stopAnimation();
+    marquee.stopAnimation();
+    likeScale.setValue(1);
+    commentScale.setValue(1);
+    shareX.setValue(0);
     marquee.setValue(0);
+    progress.value = 0;
+  }, [item.id, likeScale, commentScale, shareX, marquee, progress]);
+  useEffect(() => { if (!shouldLoad) progress.value = 0; }, [progress, shouldLoad]);
+  useEffect(() => {
+    marquee.setValue(0);
+    if (!playing || userPaused) return;
     const loop = Animated.loop(
       Animated.timing(marquee, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: true })
     );
     loop.start();
     return () => loop.stop();
-  }, []);
-
-  // status do player: atualiza progresso
-  useEffect(() => {
-    const subscription = player.addListener('timeUpdate', ({ currentTime }) => {
-      const duration = player.duration;
-      if (duration > 0) {
-        setProgress(Math.min(1, Math.max(0, currentTime / duration)));
-        return;
-      }
-
-      setProgress(0);
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [player]);
-
-  // tocar/pausar conforme página visível + pausa do usuário
-  useEffect(() => {
-    if (playing && !userPaused) {
-      player.play();
-      return;
-    }
-
-    player.pause();
-  }, [player, playing, userPaused]);
+  }, [item.id, marquee, playing, userPaused]);
 
   // helper: anima o coração (ícone)
   const animateHeart = () => {
@@ -205,19 +220,18 @@ const ShortCard = memo(function ShortCard({
   };
 
   const onConfirmedSingleTap = useCallback(() => {
-    setUserPaused((p) => !p);
-  }, []);
+    update(item.id, (current) => ({ paused: !current.paused }));
+  }, [item.id, update]);
 
   const spawnLikeHearts = useCallback((x: number, y: number) => {
     heartsRef.current?.spawn(x, y);
   }, []);
 
   const onConfirmedDoubleTap = useCallback((x: number, y: number) => {
-    if (!liked) setLiked(true);
-    onDoubleLike?.();
+    update(item.id, () => ({ liked: true }));
     animateHeart();
     spawnLikeHearts(x, y);
-  }, [liked, onDoubleLike, spawnLikeHearts]);
+  }, [item.id, update, spawnLikeHearts]);
 
   const handleSingleOrDoubleTap = useCallback((event: GestureResponderEvent) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -238,20 +252,17 @@ const ShortCard = memo(function ShortCard({
     () => {
       if (singleTapTimeoutRef.current) {
         clearTimeout(singleTapTimeoutRef.current);
+        singleTapTimeoutRef.current = null;
       }
     }
-  ), []);
+  ), [item.id]);
 
   // clicar no coração (ícone) — animação + toggle
   const onHeartPress = (event: GestureResponderEvent) => {
     const { pageX, pageY } = event.nativeEvent;
-    setLiked((value) => {
-      const next = !value;
-      if (next) {
-        spawnLikeHearts(pageX, pageY);
-      }
-      return next;
-    });
+    const wasLiked = useShortsUiStore.getState().interactions[item.id]?.liked ?? false;
+    update(item.id, (current) => ({ liked: !current.liked }));
+    if (!wasLiked) cardRef.current?.measureInWindow((x, y) => spawnLikeHearts(pageX - x, pageY - y));
     animateHeart(); // anima SOMENTE o ícone
   };
 
@@ -277,32 +288,26 @@ const ShortCard = memo(function ShortCard({
   const fmt = (n: number) => formatCount(n, 'lower');
 
   return (
-    <View style={styles.page}>
+    <View ref={cardRef} style={[styles.page, { width, height }]}>
       {/* vídeo (tap pausa/retoma, duplo toque curte) */}
       <Pressable style={styles.videoTouch} onPress={handleSingleOrDoubleTap}>
-        <VideoView
-          player={player}
-          style={styles.video}
-          contentFit="cover"
-          nativeControls={false}
-          surfaceType="textureView"
-          useExoShutter={false}
-        />
+        {shouldLoad && <ShortVideo key={item.id} uri={item.videoUrl} playing={playing && !userPaused} progress={progress} />}
       </Pressable>
 
       {/* gradiente sutil para leitura */}
       <LinearGradient
+        pointerEvents="none"
         colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.6)']}
         style={StyleSheet.absoluteFill}
       />
 
       {/* barra de progresso discreta */}
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: Math.max(0, Math.min(1, progress)) * width }]} />
+      <View style={[styles.progressTrack, { bottom: bottomOffset + 6 }]}>
+        <Reanimated.View style={[styles.progressFill, progressStyle]} />
       </View>
 
       {/* coluna de ações à direita — acima da bottom bar */}
-      <View style={styles.rightRail}>
+      <View style={[styles.rightRail, { bottom: bottomOffset + 28 }]}>
         {/* Perfil + seguir */}
         <View style={styles.profileBlock}>
           <Image
@@ -314,7 +319,7 @@ const ShortCard = memo(function ShortCard({
           />
           <TouchableOpacity
             style={[styles.followBtn, follow && styles.following]}
-            onPress={() => setFollow(v => !v)}
+            onPress={() => toggleFollowing(item.user.id, !!item.user.following)}
             activeOpacity={0.9}
           >
             <Ionicons name={follow ? 'checkmark' : 'add'} size={18} color={follow ? '#DDE1FF' : '#0E0E12'} />
@@ -353,13 +358,13 @@ const ShortCard = memo(function ShortCard({
       </View>
 
       {/* base: usuário, caption, áudio — acima da bottom bar */}
-      <View style={styles.bottomInfo}>
+      <View style={[styles.bottomInfo, { bottom: bottomOffset + 12 }]}>
         <Text style={styles.userName}>@{item.user.name.toLowerCase()}</Text>
         <Text style={styles.caption}>{item.caption}</Text>
 
         <View style={styles.audioRow}>
           <Ionicons name="musical-notes-outline" size={16} color="#DDE1FF" />
-          <View style={styles.marqueeBox}>
+          <View style={[styles.marqueeBox, { width: width * 0.6 }]}>
             <Animated.Text
               style={[styles.music, { transform: [{ translateX: marqueeTx }] }]}
               numberOfLines={1}
@@ -370,7 +375,7 @@ const ShortCard = memo(function ShortCard({
         </View>
       </View>
 
-      <FloatingHearts ref={heartsRef} />
+      <FloatingHearts key={item.id} ref={heartsRef} />
     </View>
   );
 });
@@ -380,16 +385,33 @@ const ShortCard = memo(function ShortCard({
 ========================================= */
 export default function Shorts() {
   const isFocused = useIsFocused();
+  const playbackActive = useScreenPlaybackActive();
+  const dimensions = useWindowDimensions();
+  const [viewport, setViewport] = useState({ width: dimensions.width, height: dimensions.height });
+  const listRef = useRef<FlashListRef<Short>>(null);
+  const lastVisibleId = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { mode, setMode, data } = useShorts(isFocused);
   const tabsTopOffset = insets.top;
+  const bottomOffset = getTabBarOccupiedHeight(insets.bottom, Platform.OS);
 
-  const [activeId, setActiveId] = useState<string | null>(data[0]?.id ?? null);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
+  const handleModeChange = useCallback((nextMode: 'forYou' | 'following') => {
+    if (mode === nextMode) return;
+    lastVisibleId.current = null;
+    setActiveId(null);
+    setMode(nextMode);
+  }, [mode, setMode]);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width > 0 && height > 0) setViewport((current) => current.width === width && current.height === height ? current : { width, height });
+  }, []);
   useEffect(() => {
-    setActiveId(data[0]?.id ?? null);
-  }, [data]);
+    const index = data.findIndex((item) => item.id === lastVisibleId.current);
+    if (index >= 0) listRef.current?.scrollToOffset({ offset: index * viewport.height, animated: false });
+  }, [data, viewport.height, viewport.width]);
 
   // controlar qual vídeo está visível
   const isShort = (item: unknown): item is Short => (
@@ -403,8 +425,10 @@ export default function Shorts() {
     const viewableItem = viewableItems.find((token: ViewToken<Short>) => token.isViewable);
 
     if (!isShort(viewableItem?.item)) {
+      setActiveId(null);
       return;
     }
+    lastVisibleId.current = viewableItem.item.id;
 
     setActiveId((currentId) => (
       currentId === viewableItem.item.id ? currentId : viewableItem.item.id
@@ -413,29 +437,34 @@ export default function Shorts() {
 
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 80 });
 
+  const activeIndex = Math.max(0, data.findIndex((item) => item.id === (activeId ?? lastVisibleId.current)));
   const renderItem = useCallback(
-    ({ item }: { item: Short }) => (
-      <ShortCard item={item} playing={item.id === activeId} onDoubleLike={() => {}} />
+    ({ item, index }: { item: Short; index: number }) => (
+      <ShortCard item={item} playing={playbackActive && item.id === activeId} shouldLoad={index === activeIndex || index === activeIndex + 1} width={viewport.width} height={viewport.height} bottomOffset={bottomOffset} />
     ),
-    [activeId]
+    [activeId, activeIndex, playbackActive, viewport.height, viewport.width, bottomOffset]
   );
 
   return (
-    <View style={styles.root}>
+    <View style={styles.root} onLayout={handleLayout}>
       <LinearGradient colors={['#0E0E12', '#11142a', '#0E0E12']} style={StyleSheet.absoluteFill} />
       <Tabs
         mode={mode}
-        onChange={setMode}
+        onChange={handleModeChange}
         topOffset={tabsTopOffset}
         onOpenLive={() => navigation.navigate('Live')}
       />
 
       <FlashList
+        key={mode}
+        ref={listRef}
         data={data}
-        drawDistance={height}
-        keyExtractor={(i) => i.id}
+        extraData={activeId + String(playbackActive) + viewport.width + ":" + viewport.height}
+        maintainVisibleContentPosition={{ disabled: true }}
+        drawDistance={viewport.height}
+        keyExtractor={shortKey}
         renderItem={renderItem}
-        getItemType={() => 'short'}
+        getItemType={shortType}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -492,9 +521,12 @@ const styles = StyleSheet.create({
   },
 
   /* Página do vídeo */
-  page: { width, height, justifyContent: 'center', alignItems: 'center' },
-  videoTouch: { position: 'absolute', width, height },
-  video: { width, height, backgroundColor: '#000' },
+  page: { justifyContent: 'center', alignItems: 'center' },
+  videoTouch: { ...StyleSheet.absoluteFillObject },
+  video: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  mediaError: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)', gap: 8 },
+  errorText: { color: '#EDEFFF' },
+  retryText: { color: '#C6C2FF', fontWeight: '700', padding: 12 },
 
   heartsOverlay: { ...StyleSheet.absoluteFillObject },
 
@@ -502,7 +534,6 @@ const styles = StyleSheet.create({
   progressTrack: {
     position: 'absolute',
     left: 0, right: 0,
-    bottom: TAB_BAR_HEIGHT + 6,
     height: 3,
     backgroundColor: 'rgba(255,255,255,0.15)',
   },
@@ -515,7 +546,6 @@ const styles = StyleSheet.create({
   rightRail: {
     position: 'absolute',
     right: 12,
-    bottom: TAB_BAR_HEIGHT + 28,
     alignItems: 'center',
     gap: 16,
   },
@@ -539,11 +569,13 @@ const styles = StyleSheet.create({
   bottomInfo: {
     position: 'absolute',
     left: 14, right: 90,
-    bottom: TAB_BAR_HEIGHT + 12,
   },
   userName: { color: '#fff', fontWeight: '800', fontSize: 14, marginBottom: 4 },
   caption: { color: '#E6E8F5' },
   audioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
-  marqueeBox: { overflow: 'hidden', width: width * 0.6 },
+  marqueeBox: { overflow: 'hidden' },
   music: { color: '#DDE1FF' },
 });
+
+const shortKey = (item: Short) => item.id;
+const shortType = () => 'short';

@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import type Ionicons from '@expo/vector-icons/Ionicons';
 import { create } from 'zustand';
 
 export type GamerStatId = 'games' | 'finished' | 'completed' | 'time';

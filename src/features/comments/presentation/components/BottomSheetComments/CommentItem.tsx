@@ -1,28 +1,23 @@
 import React, { memo } from 'react';
 import { Image } from 'expo-image';
-import type {
-  CommentListRow,
-  CommentNode,
-} from '@/features/comments/domain/entities/comment';
+import type { CommentNode } from '@/features/comments/domain/entities/comment';
 import CommentActions from '@/features/comments/presentation/components/BottomSheetComments/CommentActions';
 import { formatRelativeTime } from '@/features/comments/presentation/components/BottomSheetComments/formatRelativeTime';
 import { StyleSheet, Text, View } from 'react-native';
 
 type CommentItemProps = {
-  row: Extract<CommentListRow, { type: 'root-comment' }>;
+  comment: CommentNode;
   showSeparator: boolean;
   onReply: (comment: CommentNode) => void;
   onLike: (commentId: string) => void;
 };
 
 function CommentItemComponent({
-  row,
+  comment,
   showSeparator,
   onReply,
   onLike,
 }: CommentItemProps) {
-  const { comment } = row;
-
   return (
     <View style={[styles.commentRow, showSeparator && styles.separator]}>
       <Image
